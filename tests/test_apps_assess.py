@@ -188,6 +188,17 @@ def test_wrong_record_version_is_rejected_before_assessing(tmp_path, offline):
     assert output.result["assessment"] is None
 
 
+def test_assessor_programming_error_reaches_the_host(tmp_path, offline):
+    request, config, directory = offline
+
+    def broken_assessor(*args, **kwargs):
+        raise TypeError("fixture programming error")
+
+    with pytest.raises(TypeError, match="fixture programming error"):
+        assess(request, workspace=tmp_path, storage_config=config, assess_benchmark=broken_assessor)
+    assert not list(directory.glob("*/assessment.json"))
+
+
 def test_read_assessment_rejects_the_wrong_identity_even_if_bytes_match(offline):
     _, config, directory = offline
     data = (_FIXTURES / "assessment.json").read_bytes()

@@ -321,26 +321,33 @@ def _assess_fixed(
     request: dict, storage_config: dict, assess_benchmark: Assessor,
     validate_assessment: Callable[[dict], None], encode_assessment: Callable[[dict], bytes],
 ) -> dict:
-    primary = _assessment_request(request)
-    record_ref = request["record_ref"]
-    mount = archive_mount(storage_config, for_write=True)
-    artifacts = ArtifactReader(storage_config)
-    with artifacts.open(record_ref["artifact"]) as record_bytes:
-        record = decode(record_bytes.read())
-    prepared_ref = record["prepared_ref"]
-    prepared = read_prepared(storage_config, prepared_ref)
-    protocol = read_archive_artifact(storage_config, prepared["protocol"])
-    verify_protocol(prepared, protocol)
-    evidence = to_evidence(prepared, prepared_ref, record_ref, record)
-    claim_keys = {
-        (claim["claim_id"], claim["validation_scope"])
-        for claim in decode(protocol)["claim_definitions"]
-    }
-    if primary not in claim_keys:
+    try:
+        encode(request)
+        primary = _assessment_request(request)
+        record_ref = request["record_ref"]
+        mount = archive_mount(storage_config, for_write=True)
+        artifacts = ArtifactReader(storage_config)
+        with artifacts.open(record_ref["artifact"]) as record_bytes:
+            record = decode(record_bytes.read())
+        prepared_ref = record["prepared_ref"]
+        prepared = read_prepared(storage_config, prepared_ref)
+        protocol = read_archive_artifact(storage_config, prepared["protocol"])
+        verify_protocol(prepared, protocol)
+        evidence = to_evidence(prepared, prepared_ref, record_ref, record)
+        claim_keys = {
+            (claim["claim_id"], claim["validation_scope"])
+            for claim in decode(protocol)["claim_definitions"]
+        }
+        if primary not in claim_keys:
+            raise PublicError(
+                "InvalidRequest", stage="primary_claim", message="Unknown primary claim key."
+            )
+        allowed_artifacts = AssessmentArtifacts(artifacts, prepared, record)
+    except (KeyError, TypeError, ValueError):
         raise PublicError(
-            "InvalidRequest", stage="primary_claim", message="Unknown primary claim key."
-        )
-    allowed_artifacts = AssessmentArtifacts(artifacts, prepared, record)
+            "InvalidRequest", stage="assessment_binding",
+            message="Expected a fixed assessment request and record.",
+        ) from None
     try:
         assessment = assess_benchmark(
             deepcopy(prepared), deepcopy(evidence), artifacts=allowed_artifacts,
@@ -412,14 +419,9 @@ def assess(
     if output_id is not None:
         validate_output_id(output_id)
     try:
-        encode(request)
         result = _assess_fixed(
             request, storage_config, assess_benchmark, validate_assessment, encode_assessment,
         )
     except PublicError as error:
         result = assessment_result(error=error.to_json())
-    except (KeyError, TypeError, ValueError):
-        result = assessment_result(error=_validation_error(
-            "InvalidRequest", "Expected a fixed assessment request and record."
-        ))
     return publish_result(workspace, result, output_id=output_id)
