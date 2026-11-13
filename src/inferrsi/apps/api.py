@@ -334,10 +334,10 @@ def _assess_fixed(
         protocol = read_archive_artifact(storage_config, prepared["protocol"])
         verify_protocol(prepared, protocol)
         evidence = to_evidence(prepared, prepared_ref, record_ref, record)
-        claim_keys = {
+        claim_keys = [
             (claim["claim_id"], claim["validation_scope"])
             for claim in decode(protocol)["claim_definitions"]
-        }
+        ]
         if primary not in claim_keys:
             raise PublicError(
                 "InvalidRequest", stage="primary_claim", message="Unknown primary claim key."
@@ -377,10 +377,12 @@ def _assess_fixed(
             or any(encode(assessment[key]) != encode(value) for key, value in expected.items())
         ):
             raise ValueError("assessor returned a different evaluation")
-        returned_keys = {(claim["claim_id"], claim["validation_scope"])
-                         for claim in assessment["claims"]}
-        if len(returned_keys) != len(assessment["claims"]) or not returned_keys <= claim_keys:
-            raise ValueError("assessor returned duplicate or unknown claim keys")
+        returned_keys = [
+            (claim["claim_id"], claim["validation_scope"]) for claim in assessment["claims"]
+        ]
+        returned_set = set(returned_keys)
+        if returned_keys != [key for key in claim_keys if key in returned_set]:
+            raise ValueError("assessor claim keys must follow the frozen protocol")
         validate_assessment(deepcopy(assessment))
         check_assessment_identity(assessment)
         data = encode_assessment(deepcopy(assessment))
