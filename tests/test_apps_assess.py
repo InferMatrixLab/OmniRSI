@@ -84,7 +84,9 @@ def test_primary_claim_controls_exit_without_dropping_other_claims(tmp_path, off
     assert output.result["record_ref"] == request["record_ref"]
     assert output.result["execution"] is None
     assert archive.read_result(tmp_path, "offline").result == output.result
-    with ArtifactReader(config).open(output.result["assessment_ref"]["artifact"]) as stream:
+    ref = output.result["assessment_ref"]
+    assert archive.read_assessment(config, ref) == decision
+    with ArtifactReader(config).open(ref["artifact"]) as stream:
         assert stream.read() == encode(decision)
 
 
@@ -166,6 +168,16 @@ def test_wrong_record_version_is_rejected_before_assessing(tmp_path, offline):
                     assess_benchmark=_never_assess)
     assert output.result["error"]["code"] == "IdentityMismatch"
     assert output.result["assessment"] is None
+
+
+def test_read_assessment_rejects_the_wrong_identity_even_if_bytes_match(offline):
+    _, config, directory = offline
+    data = (_FIXTURES / "assessment.json").read_bytes()
+    ref = _fixture("fixed-refs")["assessment_ref"]
+    ref["artifact"] = _write_export(directory, "assessment.json", data)
+    ref["assessment_id"] = "sha256:" + "0" * 64
+    with pytest.raises(PublicError, match="IdentityMismatch"):
+        archive.read_assessment(config, ref)
 
 
 def test_new_process_reassesses_the_requested_sqlite_revision(tmp_path, offline):

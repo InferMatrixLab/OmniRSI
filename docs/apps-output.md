@@ -151,3 +151,5 @@ code after a confirmed archive commit. Archive failure returns exit code 6 and
 keeps the assessment in the result with a null `assessment_ref`. If the archive
 commit succeeds and output publication fails, the result retains the committed
 `assessment_ref`.
+`inferrsi.apps.archive.read_assessment` resolves that fixed reference and checks
+the archived bytes, version and identity for reports and other read-only consumers.
