@@ -10,7 +10,7 @@ import pytest
 
 from inferrsi._json_v1 import decode, encode
 from inferrsi.apps import archive
-from inferrsi.apps.api import assess
+from inferrsi.apps.api import assess as run_assess
 from inferrsi.apps.artifact_reader import ArtifactReader
 from inferrsi.harness.errors import PublicError
 from inferrsi.harness.run_store import RunStore
@@ -32,6 +32,17 @@ def offline(tmp_path):
     config["mounts"][0]["root"] = str(directory)
     config["mounts"][1]["root"] = str(tmp_path / "unused-store")
     return _fixture("apps-assess-request"), config, directory
+
+
+def _validate_assessment(assessment):
+    for claim in assessment["claims"]:
+        if claim["verdict"] not in {"PASS", "FAIL", "INCONCLUSIVE"}:
+            raise ValueError("invalid verdict")
+
+
+def assess(request, **options):
+    options.setdefault("encode_assessment", encode)
+    return run_assess(request, validate_assessment=_validate_assessment, **options)
 
 
 def _never_assess(*args, **kwargs):
@@ -103,7 +114,9 @@ def test_unknown_primary_claim_does_not_invoke_assessor(tmp_path, offline, field
     assert not list(directory.glob("*/assessment.json"))
 
 
-@pytest.mark.parametrize("fault", ["omitted_claim", "duplicate_claim", "identity", "foreign_error"])
+@pytest.mark.parametrize("fault", [
+    "omitted_claim", "duplicate_claim", "identity", "foreign_error", "invalid_verdict", "encoding",
+])
 def test_invalid_assessor_response_does_not_create_archive(tmp_path, offline, fault):
     request, config, directory = offline
     decision = _fixture("assessment")
@@ -115,13 +128,18 @@ def test_invalid_assessor_response_does_not_create_archive(tmp_path, offline, fa
         _sign_assessment(decision)
     elif fault == "identity":
         decision["assessment_id"] = "sha256:" + "0" * 64
+    elif fault == "invalid_verdict":
+        decision["claims"][0]["verdict"] = "other"
+        _sign_assessment(decision)
 
     def assessor(*args, **kwargs):
         if fault == "foreign_error":
             raise PublicError("AssessorError", stage="assess", message="test", attempt_id="foreign")
         return decision
 
-    output = assess(request, workspace=tmp_path, storage_config=config, assess_benchmark=assessor)
+    encoder = (lambda assessment: b"{}") if fault == "encoding" else encode
+    output = assess(request, workspace=tmp_path, storage_config=config,
+                    assess_benchmark=assessor, encode_assessment=encoder)
     assert output.result["exit_code"] == 2
     assert output.result["error"]["code"] == "AssessorError"
     assert output.result["error"]["stage"] == "assessor_response_validation"
@@ -202,8 +220,8 @@ def test_new_process_reassesses_the_requested_sqlite_revision(tmp_path, offline)
     subprocess.run(
         [sys.executable, "-c", """
 from pathlib import Path
-from inferrsi._json_v1 import decode
-from inferrsi.apps.api import assess
+from inferrsi._json_v1 import decode, encode
+from inferrsi.apps.api import assess as run_assess
 
 workspace = Path.cwd()
 request, config, decision = decode((workspace / 'offline.json').read_bytes())
@@ -213,8 +231,10 @@ def assessor(prepared, evidence, *, artifacts):
     assert evidence['record']['phase'] == 'running'
     return decision
 
-output = assess(request, workspace=workspace, storage_config=config,
-                assess_benchmark=assessor, output_id='reassessed')
+output = run_assess(request, workspace=workspace, storage_config=config,
+                    assess_benchmark=assessor, validate_assessment=lambda value: None,
+                    encode_assessment=encode,
+                    output_id='reassessed')
 assert output.result['exit_code'] == 9
 """],
         cwd=tmp_path, capture_output=True, text=True, check=True,

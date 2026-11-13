@@ -318,13 +318,12 @@ def read_prepared(storage_config: dict, ref: dict) -> dict:
     return prepared
 
 
-def archive_assessment(assessment: dict, *, mount: tuple[str, Path]) -> dict:
+def archive_assessment(identity: str, data: bytes, *, mount: tuple[str, Path]) -> dict:
     """Commit canonical assessment bytes and return their fixed reference."""
-    data = encode(assessment)
     prefix, root = mount
     directory = uuid4().hex
     ref = {
-        "assessment_id": assessment["assessment_id"],
+        "assessment_id": identity,
         "schema_version": 1,
         "artifact": {
             "location": f"{prefix}/{directory}/assessment.json",

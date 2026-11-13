@@ -139,7 +139,7 @@ Harness mount at the same prefix for offline reads.
 ## Offline assessment
 
 `inferrsi.apps.api.assess` takes an AppsAssessRequest, the trusted storage
-configuration and the host-supplied Benchmark assessor. Apps opens the requested
+configuration and the host-supplied Benchmark assessor, validator and encoder. Apps opens the requested
 record revision, verifies its preparation and protocol, and checks the requested
 claim ID and scope before calling the assessor. The assessor receives the full
 committed payload in EvidenceInput and a reader limited to the fixed inputs.

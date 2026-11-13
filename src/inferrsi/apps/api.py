@@ -319,6 +319,7 @@ def _assessment_request(request: dict) -> tuple[str, str]:
 
 def _assess_fixed(
     request: dict, storage_config: dict, assess_benchmark: Assessor,
+    validate_assessment: Callable[[dict], None], encode_assessment: Callable[[dict], bytes],
 ) -> dict:
     primary = _assessment_request(request)
     record_ref = request["record_ref"]
@@ -373,16 +374,20 @@ def _assess_fixed(
                          for claim in assessment["claims"]}
         if len(returned_keys) != len(assessment["claims"]) or not returned_keys <= claim_keys:
             raise ValueError("assessor returned duplicate or unknown claim keys")
+        validate_assessment(deepcopy(assessment))
         check_assessment_identity(assessment)
+        data = encode_assessment(deepcopy(assessment))
+        if not isinstance(data, bytes) or data != encode(assessment):
+            raise ValueError("Benchmark encoder returned different assessment bytes")
         # Check the selected claim before making the assessment durable.
         assessment_result(primary=primary, assessment=assessment)
-    except (KeyError, TypeError, ValueError, AttributeError):
+    except (KeyError, TypeError, ValueError, AttributeError, PublicError):
         raise PublicError(
             "AssessorError", stage="assessor_response_validation",
             message="Benchmark returned an invalid assessment or omitted the selected claim.",
         ) from None
     try:
-        ref = archive_assessment(assessment, mount=mount)
+        ref = archive_assessment(assessment["assessment_id"], data, mount=mount)
     except PublicError as error:
         return assessment_result(primary=primary, assessment=assessment, error=error.to_json())
     return assessment_result(primary=primary, assessment=assessment, assessment_ref=ref)
@@ -394,18 +399,23 @@ def assess(
     workspace: Path,
     storage_config: dict,
     assess_benchmark: Assessor,
+    validate_assessment: Callable[[dict], None],
+    encode_assessment: Callable[[dict], bytes],
     output_id: str | None = None,
 ) -> RunOutput:
     """Assess one fixed record with the supplied offline Benchmark port.
 
     The port receives the frozen preparation, EvidenceInput and a reader scoped
     to those inputs. It can return or raise a structured public rejection.
+    The pure Benchmark validator and encoder check and serialize the result.
     """
     if output_id is not None:
         validate_output_id(output_id)
     try:
         encode(request)
-        result = _assess_fixed(request, storage_config, assess_benchmark)
+        result = _assess_fixed(
+            request, storage_config, assess_benchmark, validate_assessment, encode_assessment,
+        )
     except PublicError as error:
         result = assessment_result(error=error.to_json())
     except (KeyError, TypeError, ValueError):
