@@ -241,10 +241,7 @@ def _require_disjoint_paths(paths: list[str]) -> None:
 def _resource_projection(resource: dict) -> dict:
     if not isinstance(resource, dict) or resource.keys() != _RESOURCE_FIELDS:
         raise ValueError("invalid protocol resource")
-    ref = resource["artifact"]
-    validate_artifact_ref(ref)
-    _logical_path(ref["location"])
-    return {**resource, "artifact": {key: value for key, value in ref.items() if key != "location"}}
+    return {**resource, "artifact": _artifact_projection(resource["artifact"])}
 
 
 def verify_protocol(prepared: dict, data: bytes) -> None:
@@ -292,6 +289,37 @@ def verify_protocol(prepared: dict, data: bytes) -> None:
             "InvalidExecutionSpec", stage="binder_validation",
             message="The fixed preparation or protocol is malformed.",
         ) from None
+
+
+def _artifact_projection(ref: dict) -> dict:
+    validate_artifact_ref(ref)
+    _logical_path(ref["location"])
+    return {key: value for key, value in ref.items() if key != "location"}
+
+
+def check_assessment_identity(assessment: dict) -> None:
+    """Verify the v1 semantic ID while preserving the assessor's original bytes."""
+    projection = deepcopy(assessment)
+    identity = projection.pop("assessment_id")
+    del projection["assessed_at"]
+    refs = [projection["prepared_ref"], projection["record_ref"], *projection["derived_from"]]
+    refs.extend(item["against"] for item in projection["comparison"])
+    if projection["supersedes"] is not None:
+        refs.append(projection["supersedes"])
+    for ref in refs:
+        ref["artifact"] = _artifact_projection(ref["artifact"])
+    for items, field in ((projection["claims"], "evidence"),
+                         (projection["metrics"], "raw_samples")):
+        for item in items:
+            item[field] = [_artifact_projection(ref) for ref in item[field]]
+    projection["evidence_artifacts"] = [
+        _artifact_projection(ref) for ref in projection["evidence_artifacts"]
+    ]
+    if projection["candidate"] is not None:
+        candidate = projection["candidate"]
+        candidate["context_refs"] = [_artifact_projection(ref) for ref in candidate["context_refs"]]
+    if identity != "sha256:" + sha256(encode(projection)).hexdigest():
+        raise ValueError("invalid assessment semantic identity")
 
 
 def _check_prepared_ref(prepared: dict, ref: dict, *, stage: str) -> None:

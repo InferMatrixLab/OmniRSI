@@ -92,6 +92,25 @@ def preparation_result(*, prepared_ref: dict | None = None, error: dict | None =
     return {**_operation_result("prepare", error, "success"), "prepared_ref": prepared_ref}
 
 
+def assessment_result(
+    *,
+    primary: tuple[str, str] | None = None,
+    assessment: dict | None = None,
+    assessment_ref: dict | None = None,
+    error: dict | None = None,
+) -> dict:
+    """Project the selected claim and fixed assessment into AppsResultV1."""
+    verdict = _selected_verdict(assessment, primary) if assessment is not None else None
+    result = _operation_result("assess", error, _VERDICT_OUTCOMES.get(verdict, "error"))
+    if assessment is not None:
+        result.update({
+            field: assessment[field] for field in ("attempt_id", "prepared_ref", "record_ref")
+        })
+    if primary is not None:
+        result["primary_claim_id"], result["primary_scope"] = primary
+    return {**result, "assessment": assessment, "assessment_ref": assessment_ref}
+
+
 def _operation_result(operation: str, error: dict | None, outcome: str) -> dict:
     reason = error["code"] if error is not None else None
     if reason is not None:
@@ -271,7 +290,16 @@ def _check_assessment(result: dict, *, output_error: bool) -> None:
     ):
         raise ValueError("inconsistent Apps assessment reference")
     _check_artifact_ref(ref, assessment)
+    verdict = _selected_verdict(
+        assessment, (result["primary_claim_id"], result["primary_scope"])
+    )
+    if not output_error and _VERDICT_OUTCOMES[verdict] != result["outcome"]:
+        raise ValueError("Apps outcome must match the selected primary claim")
 
+
+def _selected_verdict(assessment: dict, primary: tuple[str, str] | None) -> str:
+    if primary is None or any(value is None for value in primary):
+        raise ValueError("expected a selected primary claim")
     claims = assessment.get("claims")
     if not isinstance(claims, list):
         raise ValueError("expected assessment claims")
@@ -279,18 +307,15 @@ def _check_assessment(result: dict, *, output_error: bool) -> None:
         claim.get("verdict")
         for claim in claims
         if isinstance(claim, dict)
-        and claim.get("claim_id") == result["primary_claim_id"]
-        and claim.get("validation_scope") == result["primary_scope"]
+        and (claim.get("claim_id"), claim.get("validation_scope")) == primary
     ]
     if (
-        result["primary_claim_id"] is None
-        or result["primary_scope"] is None
-        or len(verdicts) != 1
+        len(verdicts) != 1
         or not isinstance(verdicts[0], str)
         or verdicts[0] not in _VERDICT_OUTCOMES
-        or (not output_error and _VERDICT_OUTCOMES[verdicts[0]] != result["outcome"])
     ):
         raise ValueError("Apps outcome must match the selected primary claim")
+    return verdicts[0]
 
 
 def validate_result(result: object) -> None:

@@ -318,6 +318,42 @@ def read_prepared(storage_config: dict, ref: dict) -> dict:
     return prepared
 
 
+def archive_assessment(assessment: dict, *, mount: tuple[str, Path]) -> dict:
+    """Commit canonical assessment bytes and return their fixed reference."""
+    data = encode(assessment)
+    prefix, root = mount
+    directory = uuid4().hex
+    ref = {
+        "assessment_id": assessment["assessment_id"],
+        "schema_version": 1,
+        "artifact": {
+            "location": f"{prefix}/{directory}/assessment.json",
+            "sha256": sha256(data).hexdigest(),
+            "size_bytes": len(data),
+            "media_type": "application/json",
+        },
+    }
+    published = False
+    try:
+        root = _directory(root)
+        with TemporaryDirectory(prefix=".pending-", dir=root) as temporary:
+            staging = Path(temporary)
+            _write_file(staging / "assessment.json", data)
+            _sync_directory(staging)
+            _publish_directory(staging, root / directory)
+            published = True
+            _sync_directory(root)
+    except (OSError, PublicError):
+        message = (
+            "Could not confirm the durability of the assessment archive."
+            if published else "Could not commit the assessment."
+        )
+        raise PublicError(
+            "ArchivePersistenceError", stage="assessment_archive", message=message
+        ) from None
+    return ref
+
+
 def validate_output_id(output_id: str) -> None:
     if (
         not isinstance(output_id, str)

@@ -135,3 +135,19 @@ Directory mounts verify the declared bytes and reject links or traversal.
 Harness SQLite mounts use the public read-only RunStore reader for fixed
 record versions and retained objects. A directory export can replace a
 Harness mount at the same prefix for offline reads.
+
+## Offline assessment
+
+`inferrsi.apps.api.assess` takes an AppsAssessRequest, the trusted storage
+configuration and the host-supplied Benchmark assessor. Apps opens the requested
+record revision, verifies its preparation and protocol, and checks the requested
+claim ID and scope before calling the assessor. The assessor receives the full
+committed payload in EvidenceInput and a reader limited to the fixed inputs.
+An unavailable individual artifact stays an evidence gap for the assessor.
+
+Apps verifies the returned assessment's identity, archives its canonical bytes,
+and publishes the complete result. The selected claim alone determines the exit
+code after a confirmed archive commit. Archive failure returns exit code 6 and
+keeps the assessment in the result with a null `assessment_ref`. If the archive
+commit succeeds and output publication fails, the result retains the committed
+`assessment_ref`.

@@ -3,14 +3,16 @@
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
+from typing import Protocol
 
-from inferrsi._json_v1 import encode
+from inferrsi._json_v1 import decode, encode
 from inferrsi.harness.errors import PublicError
 from inferrsi.harness.execution_spec import request_digest
 
 from .archive import (
     ResourceReader,
     RunOutput,
+    archive_assessment,
     archive_mount,
     archive_prepared,
     publish_result,
@@ -18,9 +20,16 @@ from .archive import (
     read_prepared,
     validate_output_id,
 )
+from .artifact_reader import ArtifactReader, AssessmentArtifacts
 from .bridge import bind_execution as _bind_prepared_execution
-from .bridge import execution_fields, verify_protocol
-from .result import execution_result, is_public_error, preparation_result, validate_result
+from .bridge import check_assessment_identity, execution_fields, to_evidence, verify_protocol
+from .result import (
+    assessment_result,
+    execution_result,
+    is_public_error,
+    preparation_result,
+    validate_result,
+)
 
 _PREPARE_FIELDS = {"schema_version", "request"}
 _BENCHMARK_REQUEST_FIELDS = {
@@ -268,4 +277,139 @@ def execute(
 
         binder = bind_from_archive
     result = _execute_saved(request, fields, binder, execute_harness)
+    return publish_result(workspace, result, output_id=output_id)
+
+
+_ASSESS_FIELDS = {"schema_version", "record_ref", "primary_scope", "primary_claim_id"}
+_ASSESSMENT_FIELDS = {
+    "schema_version", "assessment_id", "task", "grader", "assessor", "prepared_ref",
+    "record_ref", "protocol_digest", "candidate", "attempt_id", "claims", "metrics",
+    "eligibility", "comparison", "evidence_artifacts", "assessed_at", "supersedes",
+    "derived_from", "limitations",
+}
+
+
+class Assessor(Protocol):
+    """Benchmark's offline evaluation port."""
+
+    def __call__(
+        self, prepared: dict, evidence: dict, /, *, artifacts: AssessmentArtifacts,
+    ) -> dict: ...
+
+
+def _assessment_request(request: dict) -> tuple[str, str]:
+    if (
+        not isinstance(request, dict) or request.keys() != _ASSESS_FIELDS
+        or type(request["schema_version"]) is not int
+    ):
+        raise ValueError("expected AppsAssessRequest fields")
+    if request["schema_version"] != 1:
+        raise PublicError(
+            "UnsupportedSchema", stage="validation", message="Unknown assess version."
+        )
+    claim, scope = request["primary_claim_id"], request["primary_scope"]
+    ref = request["record_ref"]
+    if (
+        not isinstance(claim, str) or not claim or not isinstance(scope, str) or not scope
+        or not isinstance(ref, dict) or ref.keys() != {"attempt_id", "record_version", "artifact"}
+    ):
+        raise ValueError("expected an exact primary claim key and RecordRef")
+    return claim, scope
+
+
+def _assess_fixed(
+    request: dict, storage_config: dict, assess_benchmark: Assessor,
+) -> dict:
+    primary = _assessment_request(request)
+    record_ref = request["record_ref"]
+    mount = archive_mount(storage_config, for_write=True)
+    artifacts = ArtifactReader(storage_config)
+    with artifacts.open(record_ref["artifact"]) as record_bytes:
+        record = decode(record_bytes.read())
+    prepared_ref = record["prepared_ref"]
+    prepared = read_prepared(storage_config, prepared_ref)
+    protocol = read_archive_artifact(storage_config, prepared["protocol"])
+    verify_protocol(prepared, protocol)
+    evidence = to_evidence(prepared, prepared_ref, record_ref, record)
+    claim_keys = {
+        (claim["claim_id"], claim["validation_scope"])
+        for claim in decode(protocol)["claim_definitions"]
+    }
+    if primary not in claim_keys:
+        raise PublicError(
+            "InvalidRequest", stage="primary_claim", message="Unknown primary claim key."
+        )
+    allowed_artifacts = AssessmentArtifacts(artifacts, prepared, record)
+    try:
+        assessment = assess_benchmark(
+            deepcopy(prepared), deepcopy(evidence), artifacts=allowed_artifacts,
+        )
+    except PublicError as error:
+        assessment = error.to_json()
+    try:
+        if is_public_error(assessment):
+            if (
+                assessment["attempt_id"] not in (None, record_ref["attempt_id"])
+                or any(assessment[key] is not None
+                       for key in ("started", "latest_record_ref", "partial_record"))
+                or assessment["retained_refs"]
+            ):
+                raise ValueError("unexpected execution facts in Benchmark error")
+            result = assessment_result(error=assessment)
+            validate_result(result)
+            return result
+        expected = {
+            "task": prepared["task"], "grader": prepared["grader"],
+            "prepared_ref": prepared_ref, "record_ref": record_ref,
+            **{field: record[field] for field in ("protocol_digest", "candidate", "attempt_id")},
+        }
+        if (
+            not isinstance(assessment, dict) or assessment.keys() != _ASSESSMENT_FIELDS
+            or type(assessment["schema_version"]) is not int or assessment["schema_version"] != 1
+            or any(encode(assessment[key]) != encode(value) for key, value in expected.items())
+        ):
+            raise ValueError("assessor returned a different evaluation")
+        returned_keys = {(claim["claim_id"], claim["validation_scope"])
+                         for claim in assessment["claims"]}
+        if len(returned_keys) != len(assessment["claims"]) or not returned_keys <= claim_keys:
+            raise ValueError("assessor returned duplicate or unknown claim keys")
+        check_assessment_identity(assessment)
+        # Check the selected claim before making the assessment durable.
+        assessment_result(primary=primary, assessment=assessment)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise PublicError(
+            "AssessorError", stage="assessor_response_validation",
+            message="Benchmark returned an invalid assessment or omitted the selected claim.",
+        ) from None
+    try:
+        ref = archive_assessment(assessment, mount=mount)
+    except PublicError as error:
+        return assessment_result(primary=primary, assessment=assessment, error=error.to_json())
+    return assessment_result(primary=primary, assessment=assessment, assessment_ref=ref)
+
+
+def assess(
+    request: dict,
+    *,
+    workspace: Path,
+    storage_config: dict,
+    assess_benchmark: Assessor,
+    output_id: str | None = None,
+) -> RunOutput:
+    """Assess one fixed record with the supplied offline Benchmark port.
+
+    The port receives the frozen preparation, EvidenceInput and a reader scoped
+    to those inputs. It can return or raise a structured public rejection.
+    """
+    if output_id is not None:
+        validate_output_id(output_id)
+    try:
+        encode(request)
+        result = _assess_fixed(request, storage_config, assess_benchmark)
+    except PublicError as error:
+        result = assessment_result(error=error.to_json())
+    except (KeyError, TypeError, ValueError):
+        result = assessment_result(error=_validation_error(
+            "InvalidRequest", "Expected a fixed assessment request and record."
+        ))
     return publish_result(workspace, result, output_id=output_id)
