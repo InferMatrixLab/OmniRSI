@@ -50,7 +50,17 @@ git fetch origin \
 
 Original capture: Debian GNU/Linux 13.7, Python 3.13.5, `git archive` copies, **shared** `--work` directory, **2026-11-14 17:20:57–17:21:12 Asia/Shanghai**, compare exit 0.
 
-Expected: **58** trial records, **448** retained files, **0** differences, tree digest over all files
+Portable same-run acceptance (driver exit 0): **58** trial records, **0**
+differences, and a documented retained-file count of **448** or **447**.
+`result.json` / `execution.json` embed the caller scratch/work path, so a
+*fresh* scratch is **not** expected to match the historical Linux tree
+digests below. Those pins describe the original receipt only; they are
+printed as an informational historical-reference check. Use
+`--require-historical-digest` only if you intend to fail when the pins
+do not match.
+
+Original Linux reference capture (not the portable exit condition): Debian
+GNU/Linux 13.7, Python 3.13.5, **448** files, tree digest over all files
 `7457bb7d4b998be31f64d4e9cb25e4e21e0b8bcf21ab8bdd1669496f9f616f61`,
 tree digest over trial `result.json`
 `9302f92978c0d97f56e6ebfff463a7aa0ef062c7788b88e75a6d4277c042f782`.
@@ -58,7 +68,7 @@ Per-record table: [`receipts/TRIAL-RECORD-HASHES-8b4a0cf-vs-a590ccb.md`](receipt
 
 The same 58/448, 0 differences, holds for `8b4a0cf` vs `9218391c40ead659403ce76906f1d07a02e040dc` (the merge did not change S01 trial bytes).
 
-Re-run (from the repository root; `--after` may be `8b4a0cf…` or `03a6a62…` — same S01 source tree):
+Re-run (from the repository root; `--after` may be `8b4a0cf…` or `03a6a62…` — same S01 source tree). Use a **new** empty `--scratch` directory; do not reuse a previous capture:
 
 ```bash
 python3 docs/reviews/pr437-s01-reproduction/reproduce.py trial-bytes \
@@ -101,18 +111,26 @@ PYTHONUTF8=1 PYTHONPATH="$AFTER/src" python3 docs/reviews/pr437-s01-reproduction
 
 python3 docs/reviews/pr437-s01-reproduction/trial_bytes.py compare \
   ./tmp/s01-repro/bytes-before ./tmp/s01-repro/bytes-after
-# expected: files: before=448 after=448 different=0
+# expected: files: before=<447 or 448> after=<same> different=0
 #           trial result.json records compared: 58
-#           exit 0
+#           compare exit 0; driver same-run parity PASS (exit 0)
+#           historical-reference digest may be "not matched" on a fresh scratch
 
 python3 docs/reviews/pr437-s01-reproduction/hash_table.py \
   ./tmp/s01-repro/bytes-before ./tmp/s01-repro/bytes-after
 ```
 
-Platform difference (not a before/after mismatch): the Linux capture retains
-**448** files; a retained Windows capture of `9218391` vs `a590ccb` had **447**.
-Do not compare a Windows file-tree digest to the Linux digest above. The 58
-`result.json` records are the acceptance rows.
+Capture-set difference (not a before/after mismatch): the Debian 13.7 /
+Python 3.13.5 reference retains **448** files; **447** has been observed on
+Windows and on a Linux Python 3.12.14 review host with same-run 0 diffs.
+Do not compare a 447-file tree digest to the Linux 448-file pin. The 58
+`result.json` records plus compare exit 0 are the portable acceptance rows.
+
+Minimal acceptance unit tests (not collected by repository pytest):
+
+```bash
+python3 docs/reviews/pr437-s01-reproduction/test_acceptance.py
+```
 
 ## 2. Real Linux sandbox qualification
 
@@ -126,6 +144,7 @@ Receipts (verbatim):
 - [`receipts/qualify-8b4a0cf-debian13/qualification.json`](receipts/qualify-8b4a0cf-debian13/qualification.json)
 - [`receipts/qualify-8b4a0cf-debian13/environment.json`](receipts/qualify-8b4a0cf-debian13/environment.json)
 - [`receipts/qualify-8b4a0cf-debian13/preflight-diag-pass-host.txt`](receipts/qualify-8b4a0cf-debian13/preflight-diag-pass-host.txt) — `preflight-diag` stdout from the same PASS host, **2026-11-14 20:59:47 Asia/Shanghai**, including `unprivileged_userns_clone` (file not present), `max_user_namespaces` (`63991`), AppArmor sysctls (absent), naive `bwrap --unshare-all -- /bin/true` (exit 1, `execvp` ENOENT; this is **not** the official probe), `--ro-bind / /` (exit 0), and official `sandbox_command(..., probe=True)` `{"ready": True}`.
+- [`receipts/preflight-diag-failing-host-python3.12.14.txt`](receipts/preflight-diag-failing-host-python3.12.14.txt) — reviewer-posted output (comment 6877867250, **2026-11-14 21:18:11 Asia/Shanghai**) from the Python 3.12.14 review host, helper at `7536ddc`, clean archive of `03a6a62`. Official probe `ready: False`; even `--ro-bind / /` fails with `NETLINK_ROUTE` `Operation not permitted`. This is **not** a qualify PASS and not official historical replay. See [PREFLIGHT-ENVIRONMENT.md](PREFLIGHT-ENVIRONMENT.md).
 
 Controls: `correct.passed` true (19/19 assertions true); `bad_starter.passed`
 false (only `length` and `http_failure` true, as designed). No host fallback.
@@ -151,9 +170,12 @@ PYTHONUTF8=1 PYTHONPATH=src python3 -m tools.skill_eval_qualify \
 
 If preflight fails with `Artifact sandbox preflight failed; no host fallback`
 and empty controls, that is INCONCLUSIVE, not a contradiction of the Debian
-13.7 receipt. See [PREFLIGHT-ENVIRONMENT.md](PREFLIGHT-ENVIRONMENT.md). This
-qualify is a real bwrap run on a local Linux host, **not** the official
-GitHub `ubuntu-22.04` workflow image.
+13.7 receipt. The attached failing-host log shows the official probe is not
+ready because `bwrap --unshare-all` cannot create a `NETLINK_ROUTE` socket
+(`Operation not permitted`), including with `--ro-bind / /`. See
+[PREFLIGHT-ENVIRONMENT.md](PREFLIGHT-ENVIRONMENT.md). This qualify is a real
+bwrap run on a local Linux host, **not** the official GitHub `ubuntu-22.04`
+workflow image.
 
 ## 3. Historical / official replay — keep A, B, and C distinct
 

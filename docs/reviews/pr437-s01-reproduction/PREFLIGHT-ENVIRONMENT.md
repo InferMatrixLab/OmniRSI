@@ -47,35 +47,47 @@ already produced a qualify PASS**. Do not treat a naive-probe failure as
 proof that this host cannot qualify, and do not treat a naive-probe success
 on another host as a complete diagnosis.
 
-## What is still not shown
+## Failing-host `preflight-diag` output (attached)
 
-A later review run at the same git tree (`8b4a0cf` / `03a6a62`), on Linux /
-Python 3.12.14 / bubblewrap 0.12.0, reported the official preflight failure
-(`SandboxUnavailable` / empty controls). The tree is the same; the **host
-sandbox capability** is not. Common causes of *that* official-probe error,
-given that `bwrap` itself is installed:
+The reviewer-side data request is now answered. zengchuang-hw reran the
+helper from `7536ddc` against a clean git archive of `03a6a62` on the
+Python 3.12.14 review host, **2026-11-14 21:18:11 Asia/Shanghai**
+(comment [6877867250](https://github.com/InferMatrixLab/InferRSI/pull/437#issuecomment-6877867250)).
+The reviewer already redacted private interpreter/workspace paths. Verbatim
+output is in
+[`receipts/preflight-diag-failing-host-python3.12.14.txt`](receipts/preflight-diag-failing-host-python3.12.14.txt).
 
-1. Unprivileged user namespaces are disabled or exhausted
-   (`/proc/sys/kernel/unprivileged_userns_clone` is `0` when that file
-   exists, or `/proc/sys/user/max_user_namespaces` is `0`), or the process
-   is already inside a container/user namespace that cannot nest
-   `--unshare-all`.
-2. `/usr/bin/python3` is missing, is not a `python3.X` CPython, or the
-   corresponding `/usr/lib/python3.X` stdlib (and a lib64/multiarch lib dir)
-   is not present. The sandbox binds **system** Python only; a conda/venv
-   or `/usr/local` interpreter used to *launch* qualify does not get mounted
-   inside bwrap. Python 3.12 vs 3.13 is fine if `/usr/bin/python3` and its
-   stdlib resolve; it is not fine if launch Python is 3.12 from a prefix
-   that is not the system layout the sandbox expects.
-3. LSM / userns restrictions (AppArmor, Debian
-   `kernel.apparmor_restrict_unprivileged_userns`, etc.) that allow `bwrap`
-   to exist but cause `--unshare-all` or the official probe process to fail.
+Side-by-side facts (same helper, same `03a6a62` / `8b4a0cf` code tree):
 
-This pack now shows which of those facts hold on the PASS host. It does
-**not** show which one applies on the failing review host. The difference
-is demonstrated only when that host posts the same
-`reproduce.py preflight-diag --repo <archive-of-8b4a0cf-or-03a6a62>`
-output.
+| Fact | PASS host (Debian 13.7 / Python 3.13.5) | Failing review host (launch Python 3.12.14) |
+| --- | --- | --- |
+| system `/usr/bin/python3` | → `python3.13`, Python 3.13.5 | → `/usr/bin/python3.13`, Python 3.13.5 |
+| bubblewrap | 0.12.0 | 0.12.0 |
+| `unprivileged_userns_clone` | file not present | file not present |
+| `max_user_namespaces` | `63991` | `2147483647` |
+| AppArmor userns sysctl / module | file not present | file not present |
+| naive `bwrap --unshare-all -- /bin/true` | exit 1, `execvp` ENOENT | exit 1, `loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted` |
+| `bwrap --unshare-all --ro-bind / / -- /usr/bin/true` | exit **0** | exit **1**, same `NETLINK_ROUTE` / `Operation not permitted` |
+| official `sandbox_command(..., probe=True)` | `{"ready": True}` | `None` / `ready: False` |
+| skill_eval_qualify | PASS (attached receipt) | remains INCONCLUSIVE, empty controls (reviewer) |
+
+This is **not** an ENOENT-only difference. On the failing host, even the
+root-bound unshare probe is denied `NETLINK_ROUTE` (`Operation not permitted`),
+and the official-shaped probe is not ready. Both hosts have system Python
+3.13.5, bwrap 0.12.0, no `unprivileged_userns_clone` file, non-zero
+`max_user_namespaces`, and no AppArmor userns sysctl/module file. The
+observed difference is network-namespace / `NETLINK_ROUTE` permission during
+`bwrap --unshare-all`, not a tree disagreement and not a missing `/bin/true`.
+
+The failing-host output does not name the exact enclosing container or
+security policy that denies that socket, and no sysctl, AppArmor, network,
+or sandbox setting was changed to try to clear it. This pack does **not**
+guess a further host policy, does **not** weaken the sandbox or enable host
+fallback, and does **not** claim a qualify PASS on the failing host.
+
+This is exploratory host-limitation evidence. It is **not** official
+historical replay, not a main-only `skill_eval_cloud_replay` run, and not
+official acceptance of Issue 410.
 
 Diagnostic (no sysctl change required to *run the diagnosis*):
 
@@ -86,10 +98,5 @@ python3 docs/reviews/pr437-s01-reproduction/reproduce.py preflight-diag \
 # python3 docs/reviews/pr437-s01-reproduction/reproduce.py preflight-diag --repo "$ARCHIVE"
 ```
 
-This pack does **not** recommend weakening the sandbox or enabling host
-fallback. If official preflight fails on a reviewer host, treat that run as
-INCONCLUSIVE and compare the `preflight-diag` facts to the attached PASS
-receipt rather than treating the two qualify verdicts as a content
-disagreement on `8b4a0cf` / `03a6a62`. Later pack-only commits (including
-`1132040` and any follow-up that only edits this directory) are **not**
-tree-identical to `8b4a0cf`.
+Later pack-only commits (including `1132040`, `7536ddc`, and any follow-up
+that only edits this directory) are **not** tree-identical to `8b4a0cf`.
