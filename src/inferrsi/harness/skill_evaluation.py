@@ -1,12 +1,13 @@
 import json
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..infra.artifacts import atomic_write_json, sha256
-from ..knowledge_operations import KnowledgeReader
-from . import skill_eval_engineering as engineering
+from . import artifact_sandbox
+from .atomic_json import atomic_write_json
+from .input_binding import file_sha256
 from .local_process import execute_command
 from .usage import normalize_usage as normalize_usage
 
@@ -94,73 +95,23 @@ def trace_metrics(path: Path) -> dict:
     return {"usage": usage, "commands": commands, "errors": errors, "completed_turns": completed}
 
 
-def valid_checks(checks) -> bool:
-    return (
-        isinstance(checks, dict)
-        and isinstance(checks.get("passed"), bool)
-        and isinstance(checks.get("assertions"), dict)
-        and bool(checks["assertions"])
-        and all(isinstance(value, bool) for value in checks["assertions"].values())
-        and checks["passed"] == all(checks["assertions"].values())
-    )
-
-
-def task_verdict(execution: dict, trace: dict, output, checks) -> str:
-    if execution["status"] != "completed" or trace["completed_turns"] != 1 or trace["errors"]:
-        return "INCONCLUSIVE"
-    if not valid_checks(checks):
-        return "INCONCLUSIVE"
-    return "PASS" if isinstance(output, dict) and checks["passed"] else "FAIL"
-
-
-def summarize(trials: list[dict]) -> dict:
-    groups = {}
-    for condition in sorted({t["condition"] for t in trials}):
-        selected = [t for t in trials if t["condition"] == condition]
-        usage = [normalize_usage(t["observations"]["usage"]) for t in selected]
-        groups[condition] = {
-            "trials": len(selected),
-            "verdicts": {
-                v: sum(t["verdict"] == v for t in selected)
-                for v in ("PASS", "FAIL", "INCONCLUSIVE")
-            },
-            "evaluation_errors": sum(t.get("evaluation_error") is not None for t in selected),
-            "elapsed_seconds": sum(t["elapsed_seconds"] for t in selected)
-            if all(t["elapsed_seconds"] is not None for t in selected)
-            else None,
-            "input_tokens": sum(u["input_tokens"] for u in usage)
-            if all(u and u.get("input_tokens") is not None for u in usage) else None,
-            "output_tokens": sum(u["output_tokens"] for u in usage)
-            if all(u and u.get("output_tokens") is not None for u in usage) else None,
-            "cost": None,
-        }
-    paired = []
-    baseline = {(t["task_id"], t["repeat"]): t for t in trials if t["condition"] == "N"}
-    for trial in trials:
-        key = trial["task_id"], trial["repeat"]
-        if trial["condition"].startswith("E") and key in baseline:
-            before = baseline[key]["verdict"]
-            paired.append(
-                {
-                    "task_id": key[0],
-                    "repeat": key[1],
-                    "condition": trial["condition"],
-                    "N": before,
-                    "E": trial["verdict"],
-                    "regression": before == "PASS" and trial["verdict"] == "FAIL",
-                    "recovery": before == "FAIL" and trial["verdict"] == "PASS",
-                }
-            )
-    return {"conditions": groups, "pairs": paired, "promotion": "not_evaluated"}
-
-
-def export_bundle(reader: KnowledgeReader, reference: str, destination: Path) -> dict:
-    bundle = reader.read(reference)
-    for name, data in bundle.content.items():
+def write_files(destination: Path, content: dict[str, bytes]) -> None:
+    """Retain named byte payloads under ``destination``; the caller resolved their source."""
+    for name, data in content.items():
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    return bundle.view()
+
+
+@dataclass(frozen=True)
+class ArtifactPort:
+    """Task-owned artifact definition and judgment, supplied by the composing application."""
+
+    kind: str
+    generation_mode: str
+    starter: bytes
+    max_source_bytes: int
+    verify: Callable[[dict, dict], dict]
 
 
 def run_trial(
@@ -175,16 +126,23 @@ def run_trial(
     prompt: str,
     deadline: float,
     *,
+    valid_checks: Callable[[object], bool],
+    task_verdict: Callable[[dict, dict, object, object], str],
+    artifact: ArtifactPort | None = None,
     timeout_seconds: float | None = None,
-    engineering_artifact: bool = False,
     generation_only: bool = False,
 ) -> dict:
-    if generation_only and not engineering_artifact:
+    """Execute one trial and retain its facts.
+
+    Check validity, the task verdict and the artifact judgment are injected ports;
+    this module holds no scoring rule and no task definition.
+    """
+    if generation_only and artifact is None:
         raise ValueError("Generation-only requires the engineering artifact adapter")
     trial_dir.mkdir(parents=True)
     final = trial_dir / "answer.json"
-    before = engineering.input_hashes(workspace) if engineering_artifact else {
-        p.relative_to(workspace).as_posix(): sha256(p)
+    before = artifact_sandbox.input_hashes(workspace) if artifact is not None else {
+        p.relative_to(workspace).as_posix(): file_sha256(p)[0]
         for p in workspace.rglob("*") if p.is_file()
     }
     command = client.command(workspace, final, schema, prompt)
@@ -225,24 +183,26 @@ def run_trial(
         else:
             try:
                 answer_limit = 1048576 if generation_only else 65536
-                answer_bytes = (engineering.read_regular(final, answer_limit)
-                                if engineering_artifact
+                answer_bytes = (artifact_sandbox.read_regular(final, answer_limit)
+                                if artifact is not None
                                 else final.read_bytes())
                 output = json.loads(answer_bytes.decode("utf-8"))
             except (ValueError, UnicodeError):
                 evaluation_error = "invalid_output_json"
     if evaluation_error is None and generation_only:
         try:
-            output = engineering.materialize_generated_artifact(workspace, output)
+            output = artifact_sandbox.materialize_generated_artifact(
+                workspace, output, artifact.starter, artifact.max_source_bytes)
         except (ValueError, OSError):
             evaluation_error = "invalid_generated_artifact"
-    if evaluation_error is None and engineering_artifact:
-        artifact = workspace / "parser.py"
+    if evaluation_error is None and artifact is not None:
+        submitted = workspace / "parser.py"
         if not isinstance(output, dict) or set(output) != {"artifact", "summary"}:
             evaluation_error = "invalid_artifact_answer"
         else:
             try:
-                artifact_bytes = engineering.read_regular(artifact, engineering.MAX_SOURCE_BYTES)
+                artifact_bytes = artifact_sandbox.read_regular(
+                    submitted, artifact.max_source_bytes)
                 source = artifact_bytes.decode("utf-8")
                 if any(path.is_symlink() for path in (trial_dir, *trial_dir.absolute().parents)):
                     raise ValueError("Retained directory contains a symlink")
@@ -267,14 +227,14 @@ def run_trial(
                     evaluation_error = "artifact_verification_deferred"
                 else:
                     try:
-                        checks = engineering.verify(task, output)
-                    except engineering.SandboxUnavailable:
+                        checks = artifact.verify(task, output)
+                    except artifact_sandbox.SandboxUnavailable:
                         evaluation_error = "artifact_sandbox_unavailable"
                     else:
                         atomic_write_json(verification_dir / "result.json", checks)
                         verification = {"status": "completed" if checks["passed"] else "failed",
                                         "returncode": 0 if checks["passed"] else 1}
-    if evaluation_error is None and not engineering_artifact:
+    if evaluation_error is None and artifact is None:
         verifier_environment = getattr(client, "verifier_environment", None)
         options = {"environment": verifier_environment()} if verifier_environment else {}
         verification = execute_command(
@@ -303,8 +263,8 @@ def run_trial(
                     if verification["returncode"] != (0 if checks["passed"] else 1):
                         evaluation_error = "verifier_exit"
     try:
-        after = engineering.input_hashes(workspace) if engineering_artifact else {
-            p.relative_to(workspace).as_posix(): sha256(p)
+        after = artifact_sandbox.input_hashes(workspace) if artifact is not None else {
+            p.relative_to(workspace).as_posix(): file_sha256(p)[0]
             for p in workspace.rglob("*") if p.is_file()
         }
     except (ValueError, OSError):
@@ -329,14 +289,15 @@ def run_trial(
         "observations": trace,
         "inputs_unchanged": before == after,
         "input_hashes": before,
-        "output_sha256": sha256(final) if final.is_file() and not final.is_symlink() else None,
+        "output_sha256": (file_sha256(final)[0]
+                          if final.is_file() and not final.is_symlink() else None),
     }
-    if engineering_artifact:
+    if artifact is not None:
         retained = trial_dir / "parser.py"
-        record["artifact_sha256"] = (sha256(retained) if retained.is_file()
+        record["artifact_sha256"] = (file_sha256(retained)[0] if retained.is_file()
                                      and not retained.is_symlink() else None)
-        record["artifact_kind"] = engineering.ADAPTER
+        record["artifact_kind"] = artifact.kind
         if generation_only:
-            record["execution_mode"] = engineering.GENERATION_MODE
+            record["execution_mode"] = artifact.generation_mode
     atomic_write_json(trial_dir / "result.json", record)
     return record

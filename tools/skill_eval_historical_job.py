@@ -11,7 +11,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox
 from inferrsi.infra.artifacts import sha256, write_json
 from tools import skill_eval_auto as auto
 from tools import skill_eval_compare as compare
@@ -78,7 +79,7 @@ def issue_authorization(config):
 
 
 def read(path):
-    return json.loads(engineering.read_regular(Path(path), 1024 * 1024))
+    return json.loads(artifact_sandbox.read_regular(Path(path), 1024 * 1024))
 
 
 def configuration():
@@ -266,7 +267,7 @@ def package(output):
                        "usage_complete": observations.get("usage_complete") is True})
         artifact = compare.trial_directory(run, entry) / "parser.py"
         if artifact.is_file() and not artifact.is_symlink():
-            data = engineering.read_regular(artifact, engineering.MAX_SOURCE_BYTES)
+            data = artifact_sandbox.read_regular(artifact, engineering.MAX_SOURCE_BYTES)
             folder = destination / "retained" / entry["condition"]
             folder.mkdir(parents=True)
             (folder / "parser.py").write_bytes(data)

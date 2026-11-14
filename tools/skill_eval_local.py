@@ -12,8 +12,10 @@ import shutil
 import stat
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_engineering as engineering
-from inferrsi.harness.skill_evaluation import normalize_usage
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox
+from inferrsi.harness.usage import normalize_usage
 from inferrsi.infra.artifacts import sha256, write_json
 
 
@@ -188,8 +190,8 @@ def capture(output: Path, authorization: str, task_id: str, condition: str, repe
     checks = None
     if error is None:
         try:
-            checks = engineering.verify(task, answer)
-        except engineering.SandboxUnavailable:
+            checks = artifact_check.verify(task, answer)
+        except artifact_sandbox.SandboxUnavailable:
             error = "artifact_sandbox_unavailable"
     (directory / "verification").mkdir()
     for name in ("stdout.log", "stderr.log"):

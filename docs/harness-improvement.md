@@ -44,7 +44,10 @@ flowchart TB
     E["Engine RunSpec → AB/BA → quality/performance evidence"]
 ```
 
-`src/inferrsi/harness/improvement.py` owns selection and usage accounting.
+`src/inferrsi/benchmark/improvement.py` owns the thresholds and acceptance rules,
+`src/inferrsi/harness/improvement.py` the search progression and
+`src/inferrsi/harness/usage.py` usage accounting; `src/inferrsi/apps/improvement.py`
+composes them.
 `tools/skill_eval_improve.py` owns freezing, declarative snapshot materialization
 and orchestration through `tools/skill_eval_compare.py`. There is no second
 subprocess runner. The engine lane and its acceptance contract remain separate.

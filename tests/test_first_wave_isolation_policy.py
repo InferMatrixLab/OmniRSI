@@ -35,7 +35,7 @@ SYNTHETIC_H_ENTRIES = (
     "inferrsi.harness.execution_service",
     "inferrsi.harness.run_store",
 )
-# Every first-wave trigger is cleared: no allowlist, no residual, no legacy mix.
+# Every first-wave trigger is cleared: no allowlist and no legacy mix.
 CLEARED_TREE = {
     "__init__.py": "",
     "_repo_pack_data.py": LEAF_SOURCE,
@@ -333,11 +333,8 @@ class TransferGraphTest(unittest.TestCase):
                 )
 
 
-RESIDUAL = "inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations"
-
-
 class HarnessEntryTest(unittest.TestCase):
-    """A01-3: new H entries never reach Knowledge through an old root shell."""
+    """A01-3: no harness module reaches Knowledge through an old root shell."""
 
     def test_new_h_entry_through_old_shell_fails(self) -> None:
         cases = (
@@ -365,7 +362,7 @@ class HarnessEntryTest(unittest.TestCase):
     def test_entry_labels_are_not_inferred_as_paths(self) -> None:
         # A guessed run_store path is not a new H entry just because the
         # label exists, but it is still a harness module: importing an old
-        # Knowledge leaf is a non-residual violation.
+        # Knowledge leaf is a violation.
         report = _report(
             {"harness/run_store/__init__.py": "from ...catalog import search_knowledge\n"},
             h_entries=("inferrsi.harness.api",),
@@ -375,7 +372,7 @@ class HarnessEntryTest(unittest.TestCase):
             report.violations,
         )
 
-    def test_non_entry_harness_module_cannot_expand_the_residual(self) -> None:
+    def test_non_entry_harness_module_cannot_reach_an_old_leaf(self) -> None:
         cases = (
             (
                 "from ..knowledge_operations import KnowledgeReader\n",
@@ -391,30 +388,35 @@ class HarnessEntryTest(unittest.TestCase):
                 report = _report({"harness/runner.py": source})
                 self.assertTrue(_violated(report, expected), report.violations)
 
-    def test_mixed_harness_may_reach_residual_only_through_registered_importer(self) -> None:
-        # Same shape as the current tree: improvement imports skill_evaluation,
-        # which holds the residual. That leak is already listed; it is not a
-        # new violation. A direct second importer of the residual target fails.
-        residual = {
+    def test_former_residual_edge_fails_for_its_importer_and_dependents(self) -> None:
+        # The edge that S01 removed has no exemption left: the importer fails,
+        # and so does every harness module that reaches the leaf through it.
+        tree = {
             "harness/skill_evaluation.py": "from ..knowledge_operations import KnowledgeReader\n",
             "harness/improvement.py": "from . import skill_evaluation\n",
         }
-        report = _report(residual)
-        self.assertEqual(report.violations, ())
-        self.assertEqual(report.residuals, (RESIDUAL,))
-        direct = _report(
-            {
-                **residual,
-                "harness/improvement.py": "from ..knowledge_operations import KnowledgeReader\n",
-            }
+        report = _report(tree)
+        self.assertIn(
+            "inferrsi.harness.skill_evaluation reaches inferrsi.knowledge_operations: "
+            "inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations",
+            report.violations,
         )
-        self.assertTrue(
-            _violated(
-                direct,
-                "inferrsi.harness.improvement reaches inferrsi.knowledge_operations",
-            ),
-            direct.violations,
+        self.assertIn(
+            "inferrsi.harness.improvement reaches inferrsi.knowledge_operations: "
+            "inferrsi.harness.improvement -> inferrsi.harness.skill_evaluation"
+            " -> inferrsi.knowledge_operations",
+            report.violations,
         )
+        self.assertNotIn("residual", blocker_kinds(report))
+        self.assertFalse(report.isolation_complete)
+        entry = "from inferrsi.harness import skill_evaluation\n"
+        granted = _report({**tree, "harness/api.py": entry})
+        self.assertIn(
+            "inferrsi.harness.api reaches inferrsi.knowledge_operations: inferrsi.harness.api"
+            " -> inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations",
+            granted.violations,
+        )
+        self.assertFalse(granted.new_core_closure_isolated)
 
     def test_submodule_import_traverses_parent_package_init(self) -> None:
         parent = {
@@ -437,32 +439,26 @@ class HarnessEntryTest(unittest.TestCase):
                 )
                 self.assertFalse(report.new_core_closure_isolated)
 
-    def test_allowed_residual_path_does_not_hide_another_bypass(self) -> None:
+    def test_transitive_path_through_root_helpers_fails(self) -> None:
         report = _report(
             {
-                "harness/skill_evaluation.py": (
-                    "from ..knowledge_operations import KnowledgeReader\n"
-                ),
-                "harness/runner.py": (
-                    "from . import skill_evaluation\nfrom inferrsi import helper_a\n"
-                ),
+                "harness/runner.py": "from inferrsi import helper_a\n",
                 "helper_a.py": "from inferrsi import helper_b\n",
                 "helper_b.py": (
                     "from inferrsi.knowledge_operations import KnowledgeReader\n"
                 ),
             }
         )
-        self.assertTrue(
-            _violated(
-                report,
-                "inferrsi.harness.runner reaches inferrsi.knowledge_operations",
-            ),
+        self.assertIn(
+            "inferrsi.harness.runner reaches inferrsi.knowledge_operations: "
+            "inferrsi.harness.runner -> inferrsi.helper_a -> inferrsi.helper_b"
+            " -> inferrsi.knowledge_operations",
             report.violations,
         )
-        self.assertEqual(report.residuals, (RESIDUAL,))
 
-    def test_residual_exemption_is_not_sort_dependent(self) -> None:
-        residual = {
+    def test_old_leaf_detection_is_not_sort_dependent(self) -> None:
+        # A second path to the same leaf is found whichever edge is walked first.
+        direct = {
             "harness/skill_evaluation.py": (
                 "from ..knowledge_operations import KnowledgeReader\n"
             )
@@ -471,26 +467,26 @@ class HarnessEntryTest(unittest.TestCase):
             with self.subTest(name=name):
                 report = _report(
                     {
-                        **residual,
+                        **direct,
                         f"{name}.py": "from . import knowledge_operations\n",
                         "harness/runner.py": (
                             f"from . import skill_evaluation\nfrom .. import {name}\n"
                         ),
                     }
                 )
-                self.assertTrue(
-                    _violated(
-                        report,
-                        "inferrsi.harness.runner reaches inferrsi.knowledge_operations",
-                    ),
-                    report.violations,
-                )
-                self.assertEqual(report.residuals, (RESIDUAL,))
+                for module in ("runner", "skill_evaluation"):
+                    self.assertTrue(
+                        _violated(
+                            report,
+                            f"inferrsi.harness.{module} reaches inferrsi.knowledge_operations",
+                        ),
+                        report.violations,
+                    )
 
     def test_h_entry_own_parent_init_is_walked(self) -> None:
         # Importing a new H entry executes its package init even when the
-        # entry body has no imports. The entry still may not use the residual.
-        residual = {
+        # entry body has no imports.
+        leak = {
             "harness/skill_evaluation.py": (
                 "from ..knowledge_operations import KnowledgeReader\n"
             ),
@@ -501,13 +497,12 @@ class HarnessEntryTest(unittest.TestCase):
             "inferrsi.harness.api -> inferrsi.harness -> "
             "inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations"
         )
-        isolated = _report({**residual, "harness/api.py": "VALUE = 1\n"})
+        isolated = _report({**leak, "harness/api.py": "VALUE = 1\n"})
         self.assertIn(expected, isolated.violations)
         self.assertFalse(isolated.new_core_closure_isolated)
-        self.assertEqual(isolated.residuals, (RESIDUAL,))
         sibling = _report(
             {
-                **residual,
+                **leak,
                 "harness/util.py": "X = 1\n",
                 "harness/api.py": "from . import util\n",
             }
@@ -515,9 +510,9 @@ class HarnessEntryTest(unittest.TestCase):
         self.assertIn(expected, sibling.violations)
         self.assertFalse(sibling.new_core_closure_isolated)
 
-    def test_non_entry_may_use_residual_through_own_parent_init(self) -> None:
-        # A non-entry with no imports of its own may still reach the residual
-        # target through the package init and skill_evaluation only.
+    def test_non_entry_own_parent_init_is_walked(self) -> None:
+        # A non-entry with no imports of its own still reaches the old leaf
+        # through the package init, and fails like an entry does.
         report = _report(
             {
                 "harness/skill_evaluation.py": (
@@ -528,21 +523,13 @@ class HarnessEntryTest(unittest.TestCase):
                 "harness/api.py": "VALUE = 1\n",
             }
         )
-        self.assertFalse(
-            _violated(
-                report,
-                "inferrsi.harness.runner reaches inferrsi.knowledge_operations",
-            ),
-            report.violations,
-        )
-        self.assertTrue(
-            _violated(
-                report,
-                "inferrsi.harness.api reaches inferrsi.knowledge_operations",
-            ),
-            report.violations,
-        )
-        self.assertEqual(report.residuals, (RESIDUAL,))
+        for module in ("runner", "api"):
+            self.assertIn(
+                f"inferrsi.harness.{module} reaches inferrsi.knowledge_operations: "
+                f"inferrsi.harness.{module} -> inferrsi.harness -> "
+                "inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations",
+                report.violations,
+            )
 
     def test_core_submodule_walk_includes_own_package_init(self) -> None:
         # Knowledge, benchmark, and apps package inits are already starts
@@ -580,22 +567,38 @@ class HarnessEntryTest(unittest.TestCase):
                 report = _report(changes)
                 self.assertIn(expected, report.violations, report.violations)
 
-    def test_registered_residual_stays_listed_and_is_not_granted(self) -> None:
-        residual = {
-            "harness/skill_evaluation.py": "from ..knowledge_operations import KnowledgeReader\n"
+    def test_returning_skill_evaluation_infra_edge_fails(self) -> None:
+        # #410 counterexample: S01 removed skill_evaluation -> infra.artifacts.
+        # Adding it back is reported hit by hit and keeps isolation false.
+        tree = {
+            "infra/__init__.py": "",
+            "infra/artifacts.py": "VALUE = 1\n",
+            "harness/skill_evaluation.py": "from ..infra.artifacts import VALUE\n",
+            "harness/improvement.py": "from . import skill_evaluation\n",
         }
-        report = _report(residual)
-        self.assertEqual(report.violations, ())
-        self.assertEqual(report.residuals, (RESIDUAL,))
-        self.assertIn(f"residual: {RESIDUAL}", report.blockers)
-        self.assertFalse(report.isolation_complete)
-        entry = "from inferrsi.harness import skill_evaluation\n"
-        granted = _report({**residual, "harness/api.py": entry})
-        self.assertIn(
-            "inferrsi.harness.api reaches inferrsi.knowledge_operations: inferrsi.harness.api"
-            " -> inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations",
-            granted.violations,
+        cleared = _report({}, manifest=EMPTY_ALLOWLIST, base=CLEARED_TREE)
+        self.assertEqual(cleared.harness_model_infra, ())
+        self.assertTrue(cleared.isolation_complete)
+        report = _report(tree, manifest=EMPTY_ALLOWLIST, base=CLEARED_TREE)
+        self.assertEqual(
+            report.harness_model_infra,
+            (
+                "inferrsi.harness.improvement -> inferrsi.harness.skill_evaluation"
+                " -> inferrsi.infra",
+                "inferrsi.harness.improvement -> inferrsi.harness.skill_evaluation"
+                " -> inferrsi.infra.artifacts",
+                "inferrsi.harness.skill_evaluation -> inferrsi.infra",
+                "inferrsi.harness.skill_evaluation -> inferrsi.infra.artifacts",
+            ),
         )
+        self.assertEqual(
+            report.blockers,
+            (
+                "harness reaches model/infra: inferrsi.harness.improvement -> "
+                "inferrsi.harness.skill_evaluation -> inferrsi.infra (4 hits)",
+            ),
+        )
+        self.assertFalse(report.isolation_complete)
 
     def test_mixed_harness_tree_is_not_an_isolated_core(self) -> None:
         tree = {"__init__.py": "", "harness/__init__.py": "", "harness/runner.py": "VALUE = 1\n"}
@@ -622,10 +625,12 @@ class StagedIsolationTest(unittest.TestCase):
             ("absent: apps/", {"apps/__init__.py": None, "apps/main.py": None}, EMPTY_ALLOWLIST),
             ("allowlist: 9 compatibility pairs", {}, MANIFEST),
             (
-                f"residual: {RESIDUAL}",
+                "harness reaches model/infra: inferrsi.harness.skill_evaluation"
+                " -> inferrsi.infra",
                 {
-                    "knowledge_operations.py": "VALUE = 1\n",
-                    "harness/skill_evaluation.py": "from ..knowledge_operations import VALUE\n",
+                    "infra/__init__.py": "",
+                    "infra/artifacts.py": "VALUE = 1\n",
+                    "harness/skill_evaluation.py": "from ..infra.artifacts import VALUE\n",
                 },
                 EMPTY_ALLOWLIST,
             ),

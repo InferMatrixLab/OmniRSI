@@ -242,8 +242,9 @@ See the [source audit and proposed remedies](docs/reviews/source-audit-ac70272.m
 for the 34 review points, qualifications and suggested acceptance checks.
 
 Alongside the engine loop, the [offline improvement controller](docs/harness-improvement.md)
-composes the existing Skill Eval comparator and independent verifier. Its selection
-policy lives in `harness/improvement.py`; the tool adapter freezes snapshots and
+composes the existing Skill Eval comparator and independent verifier. Its acceptance
+rules live in `benchmark/improvement.py` and its search progression in
+`harness/improvement.py`; the tool adapter freezes snapshots and
 carries the total budget across probes, rerun and holdout. The engine diagrams above
 continue to describe the engine path; this additional lane does not provide engine
 performance evidence or an autonomous model-backed optimizer.

@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "tools/skill_eval_cloud_export.py", line 74, in <module>
+    main()
+    ~~~~^^
+  File "tools/skill_eval_cloud_export.py", line 63, in main
+    bundle = export(args.run, args.protocol)
+  File "tools/skill_eval_cloud_export.py", line 14, in export
+    plan = compare.load_plan(output)
+  File "tools/skill_eval_compare.py", line 444, in load_plan
+    raise ValueError(f"Controller changed after freeze: {name}")
+ValueError: Controller changed after freeze: tools/skill_eval_compare.py
+8b4a0cf_export_exit=1

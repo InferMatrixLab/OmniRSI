@@ -11,7 +11,9 @@ import sys
 
 import pytest
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox as sandbox
 from inferrsi.infra.artifacts import sha256, write_json
 from tests.fixtures.skill_eval_compare_support import configuration
 from tools import skill_eval_compare as compare
@@ -64,11 +66,11 @@ def test_cli_two_arm_capture_and_report_keep_synthetic_provenance(
         engineering.validate_task(task)
         verified_sources.append(answer["artifact_source"])
         if sandbox_unavailable:
-            raise engineering.SandboxUnavailable("synthetic unavailable-host control")
+            raise sandbox.SandboxUnavailable("synthetic unavailable-host control")
         passed = answer["artifact_source"] == CORRECT_CONTROL
         return {"passed": passed, "assertions": {"synthetic_cli_control": passed}}
 
-    monkeypatch.setattr(engineering, "verify", synthetic_verify)
+    monkeypatch.setattr(artifact_check, "verify", synthetic_verify)
     plan = compare.load_plan(output)
     retained_sources = []
     for role in compare.ROLES:

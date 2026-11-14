@@ -3,7 +3,9 @@ import json
 
 import pytest
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox as sandbox
 from inferrsi.infra.artifacts import sha256, write_json
 from tests.fixtures.skill_eval_compare_support import configuration
 from tools import skill_eval_compare as compare
@@ -46,7 +48,7 @@ def fake_verify(task, answer):
 
 def test_manual_handoff_keeps_artifact_and_author_provenance_separate(tmp_path, monkeypatch):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     logs = submission(tmp_path, output)
     for role in compare.ROLES:
         workspace = tmp_path / role
@@ -74,7 +76,7 @@ def test_manual_handoff_keeps_artifact_and_author_provenance_separate(tmp_path, 
 @pytest.mark.parametrize("mutation", ["missing", "input", "additional", "symlink"])
 def test_capture_rejects_missing_or_changed_frozen_inputs(tmp_path, monkeypatch, mutation):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     if mutation == "missing":
@@ -109,10 +111,10 @@ def test_stale_head_and_missing_logs_are_not_accepted(tmp_path):
 ])
 def test_import_command_count_preserves_unknown_and_observed_zero(
         tmp_path, monkeypatch, commands, completed_turns, expected):
-    from inferrsi.harness.improvement import usage_totals
+    from inferrsi.harness.usage import usage_totals
 
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     original = local.capture(output, digest, "parser", "baseline", 1, workspace, head,
@@ -143,9 +145,9 @@ def test_unavailable_sandbox_remains_inconclusive(tmp_path, monkeypatch):
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
 
     def unavailable(*_):
-        raise engineering.SandboxUnavailable("mocked unsupported host")
+        raise sandbox.SandboxUnavailable("mocked unsupported host")
 
-    monkeypatch.setattr(engineering, "verify", unavailable)
+    monkeypatch.setattr(artifact_check, "verify", unavailable)
     result = local.capture(output, digest, "parser", "baseline", 1, workspace, head,
                            submission(tmp_path, output))
     trial = result["pairs"][0]["baseline"]
@@ -161,7 +163,7 @@ def test_no_unsafe_default_agent_launch(tmp_path):
 
 def test_retained_artifact_tamper_and_missing_author_evidence(tmp_path, monkeypatch):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     result = local.capture(output, digest, "parser", "baseline", 1, workspace, head,
@@ -174,7 +176,7 @@ def test_retained_artifact_tamper_and_missing_author_evidence(tmp_path, monkeypa
 
 def test_rewritten_stage_receipt_cannot_authorize_changed_inputs(tmp_path, monkeypatch):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     (workspace / "task.json").write_text("{}")
@@ -194,7 +196,7 @@ def test_rewritten_stage_receipt_cannot_authorize_changed_inputs(tmp_path, monke
 def test_valid_artifact_does_not_erase_failed_or_overbudget_author_run(
         tmp_path, monkeypatch, field, value, error):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     (workspace / "parser.py").write_text("# authored correct fixture\n")
@@ -211,7 +213,7 @@ def test_valid_artifact_does_not_erase_failed_or_overbudget_author_run(
 
 def test_retained_symlink_is_never_read_as_artifact_evidence(tmp_path, monkeypatch):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     result = local.capture(output, digest, "parser", "baseline", 1, workspace, head,
@@ -230,7 +232,7 @@ def test_retained_symlink_is_never_read_as_artifact_evidence(tmp_path, monkeypat
 
 def test_retained_artifact_preserves_crlf_bytes(tmp_path, monkeypatch):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     (workspace / "parser.py").write_bytes(b"# CRLF artifact\r\n")
@@ -245,7 +247,7 @@ def test_retained_artifact_preserves_crlf_bytes(tmp_path, monkeypatch):
                                     "parser.py", "agent", "verification", "receipt.json"])
 def test_capture_refuses_preexisting_dangling_retained_target(tmp_path, monkeypatch, target):
     output, digest, head = prepared(tmp_path)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     directory = compare.trial_directory(output, compare.load_plan(output)["schedule"][0])
@@ -265,14 +267,14 @@ def test_report_replays_artifact_after_blocked_capture_without_rewriting_attempt
     (workspace / "parser.py").write_text("# authored correct fixture\n")
 
     def unavailable(*_):
-        raise engineering.SandboxUnavailable("capture host blocked")
+        raise sandbox.SandboxUnavailable("capture host blocked")
 
-    monkeypatch.setattr(engineering, "verify", unavailable)
+    monkeypatch.setattr(artifact_check, "verify", unavailable)
     local.capture(output, digest, "parser", "baseline", 1, workspace, head,
                   submission(tmp_path, output))
     directory = compare.trial_directory(output, compare.load_plan(output)["schedule"][0])
     retained_record = (directory / "result.json").read_bytes()
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     result = compare.read_report(output)
     trial = result["pairs"][0]["baseline"]
     assert trial["artifact_verdict"] == "PASS"
@@ -298,7 +300,7 @@ def test_stage_frozen_inputs_ignore_host_newline_translation(tmp_path, monkeypat
                                    newline="\r\n" if newline is None else newline)
 
     monkeypatch.setattr(Path, "write_text", crlf_write_text)
-    monkeypatch.setattr(engineering, "verify", fake_verify)
+    monkeypatch.setattr(artifact_check, "verify", fake_verify)
     workspace = tmp_path / "baseline"
     local.stage(output, digest, "parser", "baseline", 1, workspace, head)
     for name in ("task.json", "INSTRUCTIONS.txt"):

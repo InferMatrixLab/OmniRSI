@@ -23,7 +23,11 @@ The UTF-8 JSON object has exactly these keys (duplicate keys are rejected):
 - `task_id`: 1–128 ASCII letters, numbers, underscores, dots or hyphens; an opaque
   provenance identifier, not a path or executable task selector.
 - `request_sha256`: SHA256 of the trusted `engineering.REQUEST` UTF-8 bytes.
-- `grader_sha256`: SHA256 of the trusted `skill_eval_engineering.py` file bytes.
+- `grader_sha256`: SHA256 of the trusted
+  `src/inferrsi/benchmark/skill_eval_engineering.py` file bytes: the task, its
+  vectors and their judgment. The replay sandbox
+  (`src/inferrsi/harness/artifact_sandbox.py`) is not part of this digest; the
+  receipt's qualification records the exact revision that ran it.
 - `inputs_sha256`, `protocol_sha256`: lowercase 64-character provenance digests.
   These are retained, **not independently authenticated by this receipt**.
 - `artifacts`: exactly two objects, ordered baseline then candidate, each with

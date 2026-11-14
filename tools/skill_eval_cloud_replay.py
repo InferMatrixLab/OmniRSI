@@ -6,7 +6,9 @@ import re
 import urllib.request
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox
 from tools import skill_eval_artifact_guidance as artifact_guidance
 from tools.skill_eval_qualify import qualify
 
@@ -100,13 +102,13 @@ def replay(raw, expected_digest, revision, image):
             "provenance": "Fixed public reconstructed parser task; retained cloud artifacts"}
     try:
         for artifact in bundle["artifacts"]:
-            checked = engineering.verify(task, {
+            checked = artifact_check.verify(task, {
                 "artifact": "parser.py", "summary": "Retained artifact",
                 "artifact_source": artifact["source"],
             })
             receipt["artifacts"].append({"arm": artifact["arm"], "sha256": artifact["sha256"],
                                          "result": checked})
-    except engineering.SandboxUnavailable:
+    except artifact_sandbox.SandboxUnavailable:
         receipt["error"] = "Artifact sandbox unavailable; no fallback"
         return receipt
     # PASS describes complete replay delivery, NOT that either parser passed or a skill improved.

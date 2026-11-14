@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_diagnostic as diagnostic
+from inferrsi.benchmark import skill_eval_diagnostic as diagnostic
 from inferrsi.infra.artifacts import sha256, write_json
 from tests.fixtures.skill_eval_compare_support import FixedOutputClient, configuration, git
 from tools import skill_eval_compare as compare

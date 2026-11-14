@@ -12,15 +12,13 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_diagnostic as diagnostic
-from inferrsi.harness import skill_eval_engineering as engineering
-from inferrsi.harness.skill_evaluation import (
-    CodexClient,
-    export_bundle,
-    normalize_usage,
-    run_trial,
-    summarize,
-)
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.apps.skill_evaluation import export_bundle, run_trial, summarize
+from inferrsi.benchmark import skill_eval_diagnostic as diagnostic
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox
+from inferrsi.harness.skill_evaluation import CodexClient
+from inferrsi.harness.usage import normalize_usage
 from inferrsi.infra.artifacts import atomic_write_json, sha256, write_json
 from inferrsi.knowledge_operations import KnowledgeReader, safe_path
 from inferrsi.model.anthropic_agent import (
@@ -41,10 +39,15 @@ ROLES = ("baseline", "candidate")
 GIT_READ = ("git", "--no-replace-objects", "--no-lazy-fetch")
 CONTROLLERS = (GUARD_SOURCE, "tools/skill_eval_compare.py", "tools/skill_eval_pilot.py",
                "tools/skill_eval_artifact_guidance.py",
+               "src/inferrsi/apps/skill_evaluation.py",
+               "src/inferrsi/apps/skill_eval_engineering.py",
+               "src/inferrsi/benchmark/skill_evaluation.py",
+               "src/inferrsi/benchmark/skill_eval_diagnostic.py",
+               "src/inferrsi/benchmark/skill_eval_engineering.py",
                "src/inferrsi/harness/skill_evaluation.py",
-               "src/inferrsi/harness/skill_eval_diagnostic.py",
-               "src/inferrsi/harness/skill_eval_engineering.py", "tools/skill_eval_snapshot.py",
-               "src/inferrsi/harness/local_process.py", "src/inferrsi/infra/artifacts.py")
+               "src/inferrsi/harness/artifact_sandbox.py", "tools/skill_eval_snapshot.py",
+               "src/inferrsi/harness/local_process.py", "src/inferrsi/harness/atomic_json.py",
+               "src/inferrsi/harness/input_binding.py", "src/inferrsi/infra/artifacts.py")
 EVIDENCE = ("execution.json", "agent/stdout.log", "agent/stderr.log",
             "verification/result.json", "verification/stdout.log", "verification/stderr.log")
 NUMBER = (int, float)
@@ -404,7 +407,7 @@ def prepare(config_path: Path, repo: Path, output: Path) -> str:
         plan["adapter"] = diagnostic.ADAPTER
     if is_engineering:
         plan["adapter"] = engineering.ADAPTER
-        name = "src/inferrsi/harness/skill_eval_engineering.py"
+        name = "src/inferrsi/benchmark/skill_eval_engineering.py"
         plan["controllers"][name] = sha256(ROOT / name)
         local_source = "tools/skill_eval_local.py"
         plan["controllers"][local_source] = sha256(ROOT / local_source)
@@ -672,7 +675,7 @@ def retained_trial(output: Path, entry: dict, expected_adapter=None, execution_m
             for name in names:
                 retained_path = directory / name
                 if retained_path.exists() or retained_path.is_symlink():
-                    engineering.read_regular(retained_path, 8 * 1024 * 1024)
+                    artifact_sandbox.read_regular(retained_path, 8 * 1024 * 1024)
         except ValueError:
             return {**entry, "verdict": "INCONCLUSIVE", "evaluation_error": "unsafe_retained_file",
                     "missing": False, "checks": None, "output": None, "evidence": {},
@@ -915,7 +918,7 @@ def verify_retained_grader(plan: dict, trials: list[dict], tasks: dict) -> None:
     trusted_verifier = {
         sha256(ROOT / "tools/skill_eval_verifier.py"): verify,
         sha256(Path(diagnostic.__file__)): diagnostic.verify,
-        sha256(Path(engineering.__file__)): engineering.verify,
+        sha256(Path(engineering.__file__)): artifact_check.verify,
     }.get(plan["exam"]["grader"])
     if trusted_verifier is None:
         for trial in trials:
@@ -930,13 +933,13 @@ def verify_retained_grader(plan: dict, trials: list[dict], tasks: dict) -> None:
                 trial["evaluation_error"] = "unverified_custom_grader"
         return
     for trial in trials:
-        manual_artifact = (trusted_verifier is engineering.verify
+        manual_artifact = (trusted_verifier is artifact_check.verify
                            and trial.get("author_reported_execution")
                            and trial.get("evaluation_error") in (
                                None, "reported_agent_failure", "artifact_sandbox_unavailable",
                                "reported_run_exceeded_frozen_timeout"))
         generated_artifact = (
-            trusted_verifier is engineering.verify
+            trusted_verifier is artifact_check.verify
             and plan.get("execution_mode") == engineering.GENERATION_MODE
             and trial.get("execution_mode") == engineering.GENERATION_MODE
             and trial.get("evaluation_error") in (None, "artifact_sandbox_unavailable",
@@ -950,7 +953,7 @@ def verify_retained_grader(plan: dict, trials: list[dict], tasks: dict) -> None:
             continue
         try:
             checks = trusted_verifier(tasks[trial["task_id"]], json.loads(trial["output"]))
-        except engineering.SandboxUnavailable:
+        except artifact_sandbox.SandboxUnavailable:
             trial["verdict"] = "INCONCLUSIVE"
             trial["grader_trust"] = "unverified"
             if generated_artifact:

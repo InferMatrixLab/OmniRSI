@@ -153,7 +153,7 @@ Decision: see [`schema-and-semantics.md`](schema-and-semantics.md). Draft 2020-1
 
 ## D018 — first-wave gate policy detail
 
-Decision: [`gate-policy-runstore-and-first-prs.md`](gate-policy-runstore-and-first-prs.md) §B: exact seven leaf→module allowances, shape checks, transitive-closure checks, the registered residual `harness/skill_evaluation.py → knowledge_operations → knowledge.*` edge, the staged isolation test, and the rule that a non-empty allowlist keeps `overall isolation_complete=false`.
+Decision: [`gate-policy-runstore-and-first-prs.md`](gate-policy-runstore-and-first-prs.md) §B: exact seven leaf→module allowances, shape checks, transitive-closure checks, the registered residual `harness/skill_evaluation.py → knowledge_operations → knowledge.*` edge, the staged isolation test, and the rule that a non-empty allowlist keeps `overall isolation_complete=false`. The skill-evaluation split (#410) later removed the registered residual edge and its exemption.
 
 ## D019 — first PRs and numbering
 

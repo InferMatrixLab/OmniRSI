@@ -21,3 +21,10 @@ Status: **Proposed**. Author decisions under the user's delegation, based on the
 | `catalog.repository_pack`/`REPO_TYPES` | D020 neutral raw-data technical leaf; target interpretation stays H | K does not expose the pack reader publicly; `infra` changes only its same-leaf import; seven K bodies/root entries/tests move together |
 
 Any later split of a mixed function is accepted by real pytest/host/wheel/record comparison in the corresponding PR; none of this delays today's contract or gate-policy start. Existing external public composed entries keep their original semantics and paths per D018/D022, and an owner change cannot be used to delete an old promise.
+
+## Implemented rows
+
+The skill-evaluation split (#410) implements the `skill_evaluation`, `skill_eval_diagnostic`, `skill_eval_engineering` and `improvement` rows. H keeps `harness/skill_evaluation.py`, `harness/artifact_sandbox.py` and `harness/improvement.py`; B holds `benchmark/skill_evaluation.py`, `benchmark/skill_eval_diagnostic.py`, `benchmark/skill_eval_engineering.py` and `benchmark/improvement.py`; Apps composes them in `apps/skill_evaluation.py`, `apps/skill_eval_engineering.py` and `apps/improvement.py`. Two points follow the tree as it stands after #338, not the row text:
+
+- `usage_totals` stays in `harness/usage.py`, because `harness/optimization.py` consumes it for budget accounting. B `assessment` receives the baseline and candidate totals from Apps and does not import H.
+- `SelectionPolicy` holds only the two thresholds, so it lives whole in B. H `choose` receives the assessments, the validity block and the composition flag; it holds no threshold and no policy class.

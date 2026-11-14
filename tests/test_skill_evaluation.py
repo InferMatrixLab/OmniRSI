@@ -6,15 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from inferrsi.harness.skill_evaluation import (
-    CodexClient,
-    export_bundle,
-    run_trial,
-    summarize,
-    task_verdict,
-    toml_value,
-    trace_metrics,
-)
+from inferrsi.apps.skill_evaluation import export_bundle, run_trial, summarize
+from inferrsi.benchmark.skill_evaluation import task_verdict
+from inferrsi.harness.skill_evaluation import CodexClient, toml_value, trace_metrics
 from inferrsi.knowledge_operations import KnowledgeReader
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -272,3 +266,63 @@ def test_expired_real_executor_deadline_records_missing_events(tmp_path):
     assert result["execution_state"] == "timeout"
     assert result["verdict"] == "INCONCLUSIVE"
     assert result["observations"]["usage"] is None
+
+
+def test_host_trial_takes_verdict_rules_as_ports(tmp_path):
+    from inferrsi.harness import skill_evaluation as host
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    seen = []
+
+    def verdict(execution, trace, output, checks):
+        seen.append((execution["status"], output, checks))
+        return "PASS"
+
+    arguments = (CodexClient("never-called", "xhigh", 1),
+                 {"id": "expired", "split": "development"}, "N", 1, workspace)
+    paths = (tmp_path / "schema.json", tmp_path / "verifier.py", "Never executed",
+             time.monotonic() - 1)
+    record = host.run_trial(
+        *arguments, tmp_path / "trial", *paths,
+        valid_checks=lambda checks: pytest.fail("No verifier result exists"),
+        task_verdict=verdict)
+    # The port is consulted once; an execution fact still overrides its answer.
+    assert seen == [("timeout", None, None)]
+    assert record["evaluation_error"] == "agent_timeout" and record["verdict"] == "INCONCLUSIVE"
+    with pytest.raises(ValueError, match="Generation-only requires"):
+        host.run_trial(*arguments, tmp_path / "second", *paths, valid_checks=bool,
+                       task_verdict=verdict, generation_only=True)
+    assert not (tmp_path / "second").exists()
+    for name in ("valid_checks", "task_verdict", "summarize", "export_bundle"):
+        assert not hasattr(host, name)
+
+
+def test_harness_owned_writes_and_digests_match_infra_bytes(tmp_path):
+    from inferrsi.harness import atomic_json, input_binding
+    from inferrsi.infra import artifacts
+
+    value = {"b": [1.5, None, True, 1e-07, 1e16], "a": "非 ASCII", "nested": {"z": 0.1 + 0.2}}
+    atomic_json.atomic_write_json(tmp_path / "harness.json", value)
+    artifacts.atomic_write_json(tmp_path / "infra.json", value)
+    written = (tmp_path / "harness.json").read_bytes()
+    assert written == (tmp_path / "infra.json").read_bytes()
+    assert input_binding.file_sha256(tmp_path / "harness.json") == (
+        artifacts.sha256(tmp_path / "infra.json"), len(written))
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["harness.json", "infra.json"]
+    with pytest.raises(ValueError):
+        atomic_json.atomic_write_json(tmp_path / "nan.json", {"value": float("nan")})
+    assert not (tmp_path / "nan.json").exists()
+
+
+def test_summary_normalizes_usage_before_the_pure_statistics():
+    from inferrsi.benchmark import skill_evaluation as rules
+
+    trial = {"task_id": "one", "repeat": 1, "condition": "N", "verdict": "PASS",
+             "elapsed_seconds": 1, "observations": {"usage": {"input_tokens": -1,
+                                                               "output_tokens": 3}}}
+    assert summarize([trial])["conditions"]["N"]["input_tokens"] is None
+    assert summarize([trial])["conditions"]["N"]["output_tokens"] == 3
+    assert trial["observations"]["usage"]["input_tokens"] == -1
+    normalized = {**trial, "observations": {"usage": {"input_tokens": None, "output_tokens": 3}}}
+    assert rules.summarize([normalized]) == summarize([trial])

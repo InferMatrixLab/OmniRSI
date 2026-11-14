@@ -20,9 +20,11 @@ flowchart LR
 
 `tools/skill_eval_compare.py` still owns prepare/execute/report and paired
 snapshots. `tools/skill_eval_local.py` adds manual stage/capture, without launching
-an agent. `src/inferrsi/harness/skill_eval_engineering.py` owns the one task and
-19 public behavior probes for that one task. `skill_evaluation.py` separates the single writable
-artifact from frozen inputs. The existing cloud read/submit route is unchanged;
+an agent. `src/inferrsi/benchmark/skill_eval_engineering.py` owns the one task, its
+19 public behavior probes and their judgment. `src/inferrsi/harness/artifact_sandbox.py`
+replays the retained artifact under bubblewrap and separates the single writable
+artifact from frozen inputs; `src/inferrsi/apps/skill_eval_engineering.py` composes the two.
+The existing cloud read/submit route is unchanged;
 it cannot perform this artifact-editing task and is rejected for this adapter.
 
 ```mermaid
@@ -56,7 +58,7 @@ Do not add a provider `client`, custom `schema` or `grader`. Generate the case
 without silently changing its contract:
 
 ```python
-from inferrsi.harness.skill_eval_engineering import REQUEST
+from inferrsi.benchmark.skill_eval_engineering import REQUEST
 from inferrsi.infra.artifacts import write_json
 
 write_json("cases.json", [{

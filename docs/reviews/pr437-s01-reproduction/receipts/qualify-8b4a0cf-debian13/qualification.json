@@ -1,0 +1,62 @@
+{
+  "schema": "engineering-verifier-qualification-v1",
+  "revision": "8b4a0cfbde8a1f726c2ec1dcc4886cbb5f773db3",
+  "runner_image": "debian-13.7/local-box-bwrap-0.12.0",
+  "platform": "Linux",
+  "python": "3.13.5",
+  "verdict": "PASS",
+  "controls": {
+    "correct": {
+      "passed": true,
+      "assertions": {
+        "length": true,
+        "early_stop": true,
+        "empty_stop": true,
+        "http_failure": true,
+        "stream_error": true,
+        "missing_terminal": true,
+        "length_mismatch": true,
+        "stop_overflow": true,
+        "unknown_frame": true,
+        "boolean_count": true,
+        "duplicate_terminal": true,
+        "misplaced_done": true,
+        "negative_count": true,
+        "post_terminal_content": true,
+        "extra_content_field": true,
+        "extra_terminal_field": true,
+        "unknown_finish": true,
+        "duplicate_done": true,
+        "non_object_frame": true
+      }
+    },
+    "bad_starter": {
+      "passed": false,
+      "assertions": {
+        "length": true,
+        "early_stop": false,
+        "empty_stop": false,
+        "http_failure": true,
+        "stream_error": false,
+        "missing_terminal": false,
+        "length_mismatch": false,
+        "stop_overflow": false,
+        "unknown_frame": false,
+        "boolean_count": false,
+        "duplicate_terminal": false,
+        "misplaced_done": false,
+        "negative_count": false,
+        "post_terminal_content": false,
+        "extra_content_field": false,
+        "extra_terminal_field": false,
+        "unknown_finish": false,
+        "duplicate_done": false,
+        "non_object_frame": false
+      }
+    }
+  },
+  "scope": "Trusted software controls only; no model trial or author isolation acceptance",
+  "verifier_sha256": "40cabccb597c711e2b93814d18500c03e97affd498bc5c59fa8a53a01fa7f283",
+  "correct_control_sha256": "20d459826f83f2ae8751e39bfde33309c5cff71b67974da2d80379f38c9dd1d7",
+  "bubblewrap_version": "bubblewrap 0.12.0\n"
+}

@@ -6,7 +6,10 @@ from unittest import mock
 
 import pytest
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.apps import skill_evaluation as evaluation
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox as sandbox
 from inferrsi.harness import skill_evaluation as harness
 from inferrsi.infra.artifacts import sha256, write_json
 from inferrsi.model import anthropic_agent as agent
@@ -72,6 +75,11 @@ def test_legacy_engineering_still_rejects_provider(tmp_path):
         compare.validate(data, [TASK])
 
 
+def materialize(root, answer):
+    return sandbox.materialize_generated_artifact(
+        root, answer, engineering.STARTER.encode(), engineering.MAX_SOURCE_BYTES)
+
+
 def workspace(tmp_path):
     root = tmp_path / "work"
     root.mkdir()
@@ -105,20 +113,20 @@ def test_materializer_rejects_bad_or_multiple_outputs_without_writing(tmp_path, 
     root = workspace(tmp_path)
     before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
     with pytest.raises(ValueError):
-        engineering.materialize_generated_artifact(root, {**ANSWER, **change})
+        materialize(root, {**ANSWER, **change})
     assert before == {p.relative_to(root): p.read_bytes()
                       for p in root.rglob("*") if p.is_file()}
 
 
 def test_materializer_requires_untouched_starter_and_exact_bytes(tmp_path):
     root = workspace(tmp_path)
-    frozen = engineering.input_hashes(root)
-    assert engineering.materialize_generated_artifact(root, ANSWER) == {
+    frozen = sandbox.input_hashes(root)
+    assert materialize(root, ANSWER) == {
         "artifact": "parser.py", "summary": ANSWER["summary"]}
     assert (root / "parser.py").read_bytes() == SOURCE.encode()
-    assert engineering.input_hashes(root) == frozen
+    assert sandbox.input_hashes(root) == frozen
     with pytest.raises(ValueError, match="unchanged"):
-        engineering.materialize_generated_artifact(root, ANSWER)
+        materialize(root, ANSWER)
 
 
 @pytest.mark.parametrize("sandbox_available", [True, False])
@@ -146,10 +154,10 @@ def test_trial_retains_real_source_without_executing_it_on_host(tmp_path, sandbo
 
     checks = {"passed": False, "assertions": {"stream_error": False}}
     with mock.patch.object(harness, "execute_command", side_effect=execute), \
-         mock.patch.object(engineering, "verify", return_value=checks,
+         mock.patch.object(artifact_check, "verify", return_value=checks,
                            side_effect=None if sandbox_available else
-                           engineering.SandboxUnavailable("unavailable")) as verify:
-        record = harness.run_trial(OfflineClient(), TASK, "baseline", 1, root, trial,
+                           sandbox.SandboxUnavailable("unavailable")) as verify:
+        record = evaluation.run_trial(OfflineClient(), TASK, "baseline", 1, root, trial,
                                    tmp_path / "schema", tmp_path / "verifier", "prompt",
                                    float("inf"), engineering_artifact=True, generation_only=True)
     verify.assert_not_called()
@@ -167,12 +175,12 @@ def test_remote_replay_preserves_generation_failure_and_adds_artifact_verdict():
              "verdict": "INCONCLUSIVE", "evaluation_error": "artifact_verification_deferred",
              "checks": None, "output": json.dumps(ANSWER)}
     checks = {"passed": True, "assertions": {"fixture": True}}
-    with mock.patch.object(engineering, "verify", return_value=checks):
+    with mock.patch.object(artifact_check, "verify", return_value=checks):
         compare.verify_retained_grader(plan, [trial], {"parser": TASK})
     assert trial["verdict"] == "INCONCLUSIVE"
     assert trial["evaluation_error"] == "artifact_verification_deferred"
     assert trial["artifact_verdict"] == "PASS"
-    with mock.patch.object(engineering, "verify", side_effect=engineering.SandboxUnavailable()):
+    with mock.patch.object(artifact_check, "verify", side_effect=sandbox.SandboxUnavailable()):
         compare.verify_retained_grader(plan, [trial], {"parser": TASK})
     assert trial["evaluation_error"] == "artifact_verification_deferred"
     assert trial["artifact_replay_error"] == "artifact_sandbox_unavailable"
@@ -209,7 +217,7 @@ def test_cloud_capture_to_remote_report_preserves_error_and_shows_comparison(tmp
          mock.patch.object(agent.AnthropicAgentClient, "environment", return_value={}), \
          mock.patch.object(agent.AnthropicAgentClient, "trace_metrics", return_value=trace), \
          mock.patch.object(harness, "execute_command", side_effect=execute), \
-         mock.patch.object(engineering, "verify",
+         mock.patch.object(artifact_check, "verify",
                            side_effect=AssertionError("must not execute")) as verifier:
         initial = compare.execute(output, digest)
     verifier.assert_not_called()
@@ -221,7 +229,7 @@ def test_cloud_capture_to_remote_report_preserves_error_and_shows_comparison(tmp
         passed = "# candidate" in answer["artifact_source"]
         return {"passed": passed, "assertions": {"stream_error": passed}}
 
-    with mock.patch.object(engineering, "verify", side_effect=verify):
+    with mock.patch.object(artifact_check, "verify", side_effect=verify):
         replay = compare.report(output)
     pair = replay["pairs"][0]
     assert pair["outcome"] == "inconclusive"
@@ -258,7 +266,7 @@ def test_cloud_capture_to_remote_report_preserves_error_and_shows_comparison(tmp
     entry = compare.load_plan(output)["schedule"][0]
     trial_dir = compare.trial_directory(output, entry)
     (trial_dir / "parser.py").write_text("tampered")
-    with mock.patch.object(engineering, "verify", side_effect=verify):
+    with mock.patch.object(artifact_check, "verify", side_effect=verify):
         tampered = compare.report(output)
     assert tampered["pairs"][0]["replayed_artifact_outcome"] == "inconclusive"
     with pytest.raises(ValueError, match="invalid retained"):

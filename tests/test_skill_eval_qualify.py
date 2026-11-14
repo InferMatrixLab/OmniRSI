@@ -17,7 +17,7 @@ def controls():
 
 def test_qualification_requires_both_controls():
     with patch.object(qualify.shutil, "which", return_value=None), \
-         patch.object(qualify.engineering, "verify", side_effect=controls()) as verify:
+         patch.object(qualify.artifact_check, "verify", side_effect=controls()) as verify:
         result = qualify.qualify("a" * 40, "test-image")
     assert result["verdict"] == "PASS"
     assert verify.call_count == 2
@@ -25,8 +25,8 @@ def test_qualification_requires_both_controls():
 
 def test_unavailable_is_inconclusive_not_skipped():
     with patch.object(qualify.shutil, "which", return_value=None), \
-         patch.object(qualify.engineering, "verify",
-                      side_effect=qualify.engineering.SandboxUnavailable("blocked")):
+         patch.object(qualify.artifact_check, "verify",
+                      side_effect=qualify.artifact_sandbox.SandboxUnavailable("blocked")):
         result = qualify.qualify("a" * 40, "test-image")
     assert result["verdict"] == "INCONCLUSIVE"
     assert result["error"] == "blocked"
@@ -58,7 +58,7 @@ def test_control_mismatch_fails(change):
     else:
         results[0]["assertions"].pop("length")
     with patch.object(qualify.shutil, "which", return_value=None), \
-         patch.object(qualify.engineering, "verify", side_effect=results):
+         patch.object(qualify.artifact_check, "verify", side_effect=results):
         assert qualify.qualify("a" * 40, "test-image")["verdict"] == "FAIL"
 
 

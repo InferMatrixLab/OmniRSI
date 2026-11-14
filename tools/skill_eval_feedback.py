@@ -7,7 +7,7 @@ import html
 import json
 import re
 
-from inferrsi.harness import skill_eval_diagnostic as diagnostic
+from inferrsi.benchmark import skill_eval_diagnostic as diagnostic
 
 COMPONENTS = {
     diagnostic.ADAPTER: ("schema", "diagnosis", "citation", "safe_next_check",

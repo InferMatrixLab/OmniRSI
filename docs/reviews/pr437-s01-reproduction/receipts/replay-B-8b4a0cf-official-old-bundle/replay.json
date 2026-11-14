@@ -1,0 +1,55 @@
+{
+  "schema_version": "engineering-cloud-replay-v1",
+  "verdict": "INCONCLUSIVE",
+  "error_category": "ValueError",
+  "guidance": {
+    "schema_version": "artifact-guidance-v1",
+    "disposition": "obtain_valid_evidence",
+    "headline": "Artifact comparison is incomplete or unverified.",
+    "observations": [
+      {
+        "case": "unknown",
+        "changes": {
+          "improved": [],
+          "regressed": [],
+          "still_failing": [],
+          "unchanged_passing": [],
+          "uncompared": []
+        },
+        "capture_state": "separate original capture; not rewritten by replay",
+        "evidence_refs": [
+          "replay.json#/artifacts/0",
+          "replay.json#/artifacts/1"
+        ]
+      }
+    ],
+    "next_steps": [
+      {
+        "kind": "resolve_evidence_gap",
+        "action": "Verify retained bytes, frozen check identity and a qualified replay host before comparing; do not treat missing evidence as PASS or start new model calls automatically.",
+        "evidence_refs": [
+          "replay.json#/artifacts/0",
+          "replay.json#/artifacts/1"
+        ],
+        "requires_new_execution": false
+      }
+    ],
+    "missing_evidence": [
+      {
+        "case": "unknown",
+        "reason": "missing_or_unverified_artifact_checks",
+        "evidence_refs": [
+          "replay.json#/artifacts/0",
+          "replay.json#/artifacts/1"
+        ]
+      }
+    ],
+    "limitations": [
+      "Artifact checks do not establish skill causality, hardware efficacy or whole-PR acceptance.",
+      "Public development cases are not holdout evidence; source fidelity and uncovered claims still need review."
+    ],
+    "automatic_acceptance": false
+  },
+  "evidence_commit": "ca684ed407e19aec60c271f0032790ab0973bff1",
+  "controller_revision": "8b4a0cfbde8a1f726c2ec1dcc4886cbb5f773db3"
+}

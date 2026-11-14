@@ -4,7 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox
 from inferrsi.infra.artifacts import sha256
 from tools import skill_eval_compare as compare
 
@@ -21,7 +22,7 @@ def export(output: Path, protocol: Path) -> dict:
     tasks = compare.read_json(output / "plan/tasks.json")
     if len(tasks) != 1 or tasks[0]["request"] != engineering.REQUEST:
         raise ValueError("Replay supports the fixed public engineering task only")
-    approval = json.loads(engineering.read_regular(
+    approval = json.loads(artifact_sandbox.read_regular(
         output / "historical-execution-approval.json", 65536))
     if (approval.get("protocol_sha256") != sha256(protocol)
             or approval.get("plan_sha256") != sha256(output / "plan/freeze.json")
@@ -37,8 +38,8 @@ def export(output: Path, protocol: Path) -> dict:
                                                          "artifact_verification_deferred")
                 or trial.get("observations", {}).get("usage_complete") is not True):
             raise ValueError("Incomplete or invalid retained generation evidence")
-        data = engineering.read_regular(compare.trial_directory(output, entry) / "parser.py",
-                                        engineering.MAX_SOURCE_BYTES)
+        data = artifact_sandbox.read_regular(
+            compare.trial_directory(output, entry) / "parser.py", engineering.MAX_SOURCE_BYTES)
         if not data:
             raise ValueError("Empty artifact")
         artifacts.append({"arm": entry["condition"], "source": data.decode("utf-8"),

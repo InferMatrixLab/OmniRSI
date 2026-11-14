@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from inferrsi.harness import skill_eval_diagnostic as diagnostic
+from inferrsi.benchmark import skill_eval_diagnostic as diagnostic
 from inferrsi.infra.artifacts import sha256, write_json
 from tests.fixtures.skill_eval_compare_support import FixedOutputClient
 from tests.fixtures.skill_eval_pr_support import approval, setup

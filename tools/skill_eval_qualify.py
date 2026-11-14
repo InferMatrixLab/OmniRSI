@@ -12,7 +12,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "tests/fixtures/skill_eval_engineering/correct_parser.py"
@@ -41,10 +43,10 @@ def qualify(revision, image):
     try:
         for name, source in (("correct", CONTROL.read_text(encoding="utf-8")),
                              ("bad_starter", engineering.STARTER)):
-            result["controls"][name] = engineering.verify(task, {
+            result["controls"][name] = artifact_check.verify(task, {
                 "artifact": "parser.py", "summary": "Software control", "artifact_source": source,
             })
-    except engineering.SandboxUnavailable as error:
+    except artifact_sandbox.SandboxUnavailable as error:
         result["error"] = str(error)
         return result
     correct, bad = result["controls"]["correct"], result["controls"]["bad_starter"]

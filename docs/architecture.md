@@ -152,6 +152,17 @@ src/inferrsi/
   benchmark/
     registry.py             Generic task resource discovery
     tasks/                  Task-specific definitions, workloads and assessment
+    skill_evaluation.py     Skill trial check validity, verdict and condition statistics
+    skill_eval_diagnostic.py   Synthetic KV admission diagnosis task and grader
+    skill_eval_engineering.py  Serving-parser task, public vectors and vector judgment
+    improvement.py          Improvement-step thresholds and acceptance rules
+  apps/
+    api.py                  Python entry points for assembling and publishing Apps operations
+    archive.py              Publish and read the standardized Apps output in a workspace
+    result.py               Assemble and check the AppsResultV1 output envelope
+    skill_evaluation.py     Composed bundle export, trial run and summary
+    skill_eval_engineering.py  Composed artifact check: task rules around sandbox replay
+    improvement.py          Composed assessment, selection, rerun and holdout acceptance
   runspec.py, contracts.py   Immutable experiment contract and compatibility export
   catalog.py                Knowledge search and cited context
   skill_catalog.py          Packaged/default or custom skill metadata/body/resource resolution
@@ -189,8 +200,10 @@ src/inferrsi/
     task_protocol.py        Freeze supplied task resources and load their protocol
     optimization.py         Current-Agent round budget, records and recovery
     usage.py                Shared observed-token normalization and totals
-    improvement.py          Offline quality-first selection and usage accounting
-    skill_evaluation.py     Skill trial/client interface and independent grading
+    improvement.py          Offline search progression over injected assessments
+    skill_evaluation.py     Skill client adapter, trial execution and retention; injected rules
+    artifact_sandbox.py     Artifact capture and bubblewrap replay; no vectors or verdicts
+    atomic_json.py          Harness-owned atomic JSON evidence writes
     runner.py               One AB/BA loop; execute/snapshot adapter hooks
     evaluation.py           Performance/quality/source-integrity adjudication
     reporting.py            HTML evidence report

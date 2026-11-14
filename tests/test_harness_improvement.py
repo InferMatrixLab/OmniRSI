@@ -5,14 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
-from inferrsi.harness.improvement import (
-    SelectionPolicy,
-    assessment,
-    choose,
-    holdout_accepts,
-    usage_totals,
-)
+from inferrsi.apps.improvement import assessment, choose, holdout_accepts
+from inferrsi.benchmark.improvement import SelectionPolicy
 from inferrsi.harness.skill_evaluation import CodexClient
+from inferrsi.harness.usage import usage_totals
 from tests.fixtures.harness_improvement_demo import ScriptedClient, configuration
 from tests.fixtures.skill_eval_compare_support import git
 from tools import skill_eval_compare as compare
@@ -269,7 +265,7 @@ def test_phase_schedule_cannot_hide_failed_pair_after_authorization(tmp_path):
 
 
 def test_rerun_with_unstable_baseline_is_rejected(tmp_path):
-    from inferrsi.harness.improvement import rerun_assessment
+    from inferrsi.apps.improvement import rerun_assessment
 
     _, _, output, _, _ = run(tmp_path)
     probe = compare.read_report(output / "results/inv")
@@ -308,6 +304,26 @@ def test_policy_unknown_invalid_usage_and_quality_before_cost():
         bad = copy.deepcopy(trials)
         bad[0]["observations"]["usage"]["input_tokens"] = value
         assert usage_totals(bad)["total_tokens"] is None
+
+
+def test_rules_and_progression_meet_only_through_injected_values():
+    from inferrsi.benchmark import improvement as rules
+    from inferrsi.harness import improvement as progression
+
+    report = {"status": {"execution_state": "completed"}, "pairs": [{
+        "case_id": "one", "repeat": 1, "outcome": "unchanged_correct",
+        "baseline": {"verdict": "PASS"}, "candidate": {"verdict": "PASS"}}]}
+    usage = {"baseline": {"total_tokens": 10}, "candidate": {"total_tokens": 8}}
+    # Benchmark judges supplied totals; it reads no trial usage and imports no Harness.
+    score = rules.assessment(report, SelectionPolicy(0.5, 0), usage)
+    assert score["eligible"] and score["usage"] is usage
+    assert rules.search_block({"inv": score}, {"inv": report}) is None
+    # Harness advances on supplied assessments; it holds no threshold.
+    assert progression.choose({"inv": score}, blocked=None, composable=False) == {
+        "successor": "inv", "reason": "quality_then_tokens", "probes": {"inv": score}}
+    assert progression.choose({"inv": score}, blocked="unstable_baseline", composable=True) == {
+        "successor": "h0", "reason": "unstable_baseline", "probes": {"inv": score}}
+    assert not hasattr(progression, "SelectionPolicy") and not hasattr(rules, "usage_totals")
 
 
 def test_cost_selection_ignores_unknown_and_preserves_quality_floor(tmp_path):

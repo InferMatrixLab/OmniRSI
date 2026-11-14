@@ -1,0 +1,135 @@
+{
+  "schema_version": "engineering-cloud-replay-v1",
+  "bundle_sha256": "a401b170080e87ce5af14d1f3a49a5495d76d4db8da1353882841c5733b26547",
+  "provenance": {
+    "task_id": "serving-parser",
+    "request_sha256": "2919895a0eb519b6f1968a8eb2f81b1dfe4d93b0c579d0142d9dbf27e2b3a6d8",
+    "grader_sha256": "c83097f6069dd3e09046080b61c88aebc0922d09aab3fd5f1a03d8f04ec976f2",
+    "inputs_sha256": "878ea44b1de251fa14bc9448291f1a04fc993f8aa6311115d95e424ed16d6ea7",
+    "protocol_sha256": "ab806f0dc3c2e36cb8718c30f04f63bf8413baa20e5b6c1b588c23b815a49391"
+  },
+  "qualification": {
+    "schema": "engineering-verifier-qualification-v1",
+    "revision": "1052925ff22f9a850cebc64afd0083b35ed1fae9",
+    "runner_image": "debian-13.7/local-box-bwrap-0.12.0",
+    "platform": "Linux",
+    "python": "3.13.5",
+    "verdict": "PASS",
+    "controls": {
+      "correct": {
+        "passed": true,
+        "assertions": {
+          "length": true,
+          "early_stop": true,
+          "empty_stop": true,
+          "http_failure": true,
+          "stream_error": true,
+          "missing_terminal": true,
+          "length_mismatch": true,
+          "stop_overflow": true,
+          "unknown_frame": true,
+          "boolean_count": true,
+          "duplicate_terminal": true,
+          "misplaced_done": true,
+          "negative_count": true,
+          "post_terminal_content": true,
+          "extra_content_field": true,
+          "extra_terminal_field": true,
+          "unknown_finish": true,
+          "duplicate_done": true,
+          "non_object_frame": true
+        }
+      },
+      "bad_starter": {
+        "passed": false,
+        "assertions": {
+          "length": true,
+          "early_stop": false,
+          "empty_stop": false,
+          "http_failure": true,
+          "stream_error": false,
+          "missing_terminal": false,
+          "length_mismatch": false,
+          "stop_overflow": false,
+          "unknown_frame": false,
+          "boolean_count": false,
+          "duplicate_terminal": false,
+          "misplaced_done": false,
+          "negative_count": false,
+          "post_terminal_content": false,
+          "extra_content_field": false,
+          "extra_terminal_field": false,
+          "unknown_finish": false,
+          "duplicate_done": false,
+          "non_object_frame": false
+        }
+      }
+    },
+    "scope": "Trusted software controls only; no model trial or author isolation acceptance",
+    "verifier_sha256": "c83097f6069dd3e09046080b61c88aebc0922d09aab3fd5f1a03d8f04ec976f2",
+    "correct_control_sha256": "20d459826f83f2ae8751e39bfde33309c5cff71b67974da2d80379f38c9dd1d7",
+    "bubblewrap_version": "bubblewrap 0.12.0\n"
+  },
+  "verdict": "PASS",
+  "artifacts": [
+    {
+      "arm": "baseline",
+      "sha256": "a671e4e1f9a9079b1cf0bb91be6a27ced248f8633ba71d491e3586c95021daab",
+      "result": {
+        "passed": true,
+        "assertions": {
+          "length": true,
+          "early_stop": true,
+          "empty_stop": true,
+          "http_failure": true,
+          "stream_error": true,
+          "missing_terminal": true,
+          "length_mismatch": true,
+          "stop_overflow": true,
+          "unknown_frame": true,
+          "boolean_count": true,
+          "duplicate_terminal": true,
+          "misplaced_done": true,
+          "negative_count": true,
+          "post_terminal_content": true,
+          "extra_content_field": true,
+          "extra_terminal_field": true,
+          "unknown_finish": true,
+          "duplicate_done": true,
+          "non_object_frame": true
+        }
+      }
+    },
+    {
+      "arm": "candidate",
+      "sha256": "3e3115e4e97eba8c8b998ac3bff931d7790414d31cb6e09c190e62ac4bf15219",
+      "result": {
+        "passed": true,
+        "assertions": {
+          "length": true,
+          "early_stop": true,
+          "empty_stop": true,
+          "http_failure": true,
+          "stream_error": true,
+          "missing_terminal": true,
+          "length_mismatch": true,
+          "stop_overflow": true,
+          "unknown_frame": true,
+          "boolean_count": true,
+          "duplicate_terminal": true,
+          "misplaced_done": true,
+          "negative_count": true,
+          "post_terminal_content": true,
+          "extra_content_field": true,
+          "extra_terminal_field": true,
+          "unknown_finish": true,
+          "duplicate_done": true,
+          "non_object_frame": true
+        }
+      }
+    }
+  ],
+  "scope": "Public parser replay delivery only; captures and comparability unchanged",
+  "evidence_commit": "ca684ed407e19aec60c271f0032790ab0973bff1",
+  "controller_revision": "1052925ff22f9a850cebc64afd0083b35ed1fae9"
+}

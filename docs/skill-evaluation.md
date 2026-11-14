@@ -19,6 +19,13 @@ fresh-session, event and independent-verifier methods; its old fixed
 no-skill/human/distilled controller is not imported. No external evaluation
 platform source is copied. Existing knowledge retains its source/license limits.
 
+Ownership follows the module split. `inferrsi.harness.skill_evaluation` adapts the
+client, executes each trial and retains its facts. `inferrsi.benchmark.skill_evaluation`
+holds check validity, the task verdict and condition statistics.
+`inferrsi.apps.skill_evaluation` composes both with the bundle export behind the
+`run_trial`, `summarize` and `export_bundle` signatures; retained trial records are
+unchanged.
+
 ## Conditions and outcomes
 
 | Condition | Exposure | Purpose |

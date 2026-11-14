@@ -64,7 +64,7 @@ def test_duplicate_json_key_size_and_digest_rejected():
 
 def test_qualification_failure_never_executes_artifacts():
     with patch.object(replay, "qualify", return_value={"verdict": "INCONCLUSIVE"}), \
-         patch.object(replay.engineering, "verify") as verify:
+         patch.object(replay.artifact_check, "verify") as verify:
         result = replay.replay(*encoded(bundle()), "a" * 40, "test")
     assert result["verdict"] == "INCONCLUSIVE"
     verify.assert_not_called()
@@ -72,7 +72,7 @@ def test_qualification_failure_never_executes_artifacts():
 
 def test_replay_keeps_negative_controls_as_delivery_not_efficacy():
     with patch.object(replay, "qualify", return_value={"verdict": "PASS"}), \
-         patch.object(replay.engineering, "verify", return_value={"passed": False}) as verify:
+         patch.object(replay.artifact_check, "verify", return_value={"passed": False}) as verify:
         result = replay.replay(*encoded(bundle()), "a" * 40, "test")
     assert result["verdict"] == "PASS" and verify.call_count == 2
     assert all(item["result"]["passed"] is False for item in result["artifacts"])
@@ -81,8 +81,8 @@ def test_replay_keeps_negative_controls_as_delivery_not_efficacy():
 
 def test_lost_isolation_stays_inconclusive():
     with patch.object(replay, "qualify", return_value={"verdict": "PASS"}), \
-         patch.object(replay.engineering, "verify",
-                      side_effect=replay.engineering.SandboxUnavailable):
+         patch.object(replay.artifact_check, "verify",
+                      side_effect=replay.artifact_sandbox.SandboxUnavailable):
         assert replay.replay(*encoded(bundle()), "a" * 40, "test")["verdict"] == "INCONCLUSIVE"
 
 

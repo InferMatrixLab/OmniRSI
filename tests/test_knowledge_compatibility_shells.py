@@ -82,7 +82,7 @@ def test_package_init_and_infra_inspection_load_no_knowledge_body():
 
 def test_knowledge_closure_is_isolated_while_overall_stays_false():
     # K01-5: the Knowledge package exists and its closure is clean, but the
-    # allowlist, the registered residual and harness -> model/infra remain.
+    # allowlist and harness -> model/infra remain. S01 removed the residual.
     # After #338, runtime resource loaders keep new_core_closure_isolated
     # false; that is not a Knowledge-closure regression.
     report = first_wave_report()
@@ -90,9 +90,9 @@ def test_knowledge_closure_is_isolated_while_overall_stays_false():
     assert "absent: knowledge/" not in report.blockers
     assert {
         "allowlist",
-        "residual",
         "harness reaches model/infra",
         "runtime resource loaders",
     } <= blocker_kinds(report)
+    assert "residual" not in blocker_kinds(report)
     assert not report.new_core_closure_isolated
     assert not report.isolation_complete

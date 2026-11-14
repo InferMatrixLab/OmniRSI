@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests import _gate_policy_support as support
 from tests._gate_policy_support import (
     NEW_CORES,
     ROOT,
@@ -76,12 +77,36 @@ class TargetModuleImportGateTest(unittest.TestCase):
             self.assertNotIn(f"unscannable: {name}/", report.blockers)
         kinds = blocker_kinds(report)
         self.assertIn("allowlist", kinds)
-        self.assertEqual(
-            report.residuals,
-            ("inferrsi.harness.skill_evaluation -> inferrsi.knowledge_operations",),
-        )
-        self.assertIn("residual", kinds)
+        # No residual: the gate registers no exempt edge, and the scan above
+        # already fails any harness module that reaches an old root leaf.
+        self.assertFalse(hasattr(support, "REGISTERED_RESIDUALS"))
+        self.assertFalse(hasattr(report, "residuals"))
+        self.assertNotIn("residual", kinds)
+        self.assertEqual(report.violations, ())
         self.assertIn("harness reaches model/infra", kinds)
+
+    def test_split_skill_eval_modules_reach_no_model_or_infra(self) -> None:
+        # S01: the split Harness modules own their writes and digests. The
+        # remaining harness -> model/infra hits belong to other modules.
+        report = first_wave_report()
+        for name in (
+            "skill_evaluation",
+            "improvement",
+            "artifact_sandbox",
+            "atomic_json",
+        ):
+            with self.subTest(module=name):
+                self.assertTrue((ROOT / "harness" / f"{name}.py").is_file())
+                self.assertEqual(
+                    [
+                        path
+                        for path in report.harness_model_infra
+                        if path.startswith(f"inferrsi.harness.{name} -> ")
+                    ],
+                    [],
+                )
+        for name in ("skill_eval_diagnostic", "skill_eval_engineering"):
+            self.assertFalse((ROOT / "harness" / f"{name}.py").exists())
 
     def test_real_tree_allows_apps_and_same_core_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

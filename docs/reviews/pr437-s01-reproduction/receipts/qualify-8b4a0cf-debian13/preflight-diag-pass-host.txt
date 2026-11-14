@@ -1,0 +1,38 @@
+# Verbatim stdout of:
+#   python3 docs/reviews/pr437-s01-reproduction/reproduce.py preflight-diag --repo <git-archive-or-clone of 8b4a0cf>
+# Host: same Debian GNU/Linux 13.7 / Python 3.13.5 / bwrap 0.12.0 box that produced
+# receipts/qualify-8b4a0cf-debian13/qualification.json (PASS). Not GitHub ubuntu-22.04.
+# No sysctl, AppArmor, or sandbox change was made for this capture.
+
+captured_at_asia_shanghai: 2026-11-14 20:59:47 CST (UTC+8)
+platform: linux
+python: 3.13.5 (main, Aug 10 2026, 12:06:59) [GCC 14.2.0]
+executable: /usr/bin/python3
+system_/usr/bin/python3: /usr/bin/python3 exists=True resolved=/usr/bin/python3.13
+system_python_version: Python 3.13.5
+bwrap: /usr/bin/bwrap
+bwrap_version: bubblewrap 0.12.0
+/proc/sys/kernel/unprivileged_userns_clone: (file not present)
+/proc/sys/user/max_user_namespaces: 63991
+/proc/sys/kernel/apparmor_restrict_unprivileged_userns: (file not present)
+/sys/module/apparmor/parameters/enabled: (file not present)
+note: the next two probes are NOT the official qualify preflight.
+bubblewrap's sandbox root is empty until paths are bound, so
+`bwrap --unshare-all -- /bin/true` can exit 1 with execvp ENOENT
+on a host where official qualify still PASSes.
+probe[naive-/bin/true]: /usr/bin/bwrap --unshare-all -- /bin/true
+probe[naive-/bin/true] exit: 1
+bwrap: execvp /bin/true: No such file or directory
+probe[naive-/usr/bin/true]: /usr/bin/bwrap --unshare-all -- /usr/bin/true
+probe[naive-/usr/bin/true] exit: 1
+bwrap: execvp /usr/bin/true: No such file or directory
+probe[unshare-all-ro-bind-root]: /usr/bin/bwrap --unshare-all --ro-bind / / -- /usr/bin/true
+probe[unshare-all-ro-bind-root] exit: 0
+qualify_shaped_probe result: {'ready': True}
+qualify_shaped_probe ready: True
+qualify_shaped_probe: official sandbox_command binds system
+Python, stdlib, lib dirs, a temp /work, /proc and /dev; it is
+not `bwrap --unshare-all -- /bin/true`.
+This host is a local Linux qualify host only if the qualify-shaped
+probe is ready and /usr/bin/python3 is a system CPython 3.x. It is
+not the GitHub ubuntu-22.04 official workflow runner.

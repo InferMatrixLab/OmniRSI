@@ -185,8 +185,9 @@ See the generated [Markdown example excerpt](../tests/fixtures/skill-comparison/
 and [JSON example excerpt](../tests/fixtures/skill-comparison/report-example.json).
 
 `report` reads the frozen plan and retained results without invoking a client,
-grader or trial. It verifies the frozen comparison, pilot, harness, local
-executor, process-cleanup and artifact-helper controller hashes before interpreting results.
+grader or trial. It verifies the frozen comparison, pilot, composed-entry,
+verdict-rule, task-grader, harness, sandbox, local executor, process-cleanup and
+artifact-helper controller hashes before interpreting results.
 It can run after the original skill source checkout is unavailable, using the
 same controller implementation; changed controller code requires a new plan.
 

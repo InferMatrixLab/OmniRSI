@@ -71,6 +71,9 @@ Several flat modules remain shared seams until their slice starts.
 | `harness/optimization_session.py`, `harness/project.py`, `harness/task_protocol.py` | Shared preparation, execution and retained-result assessment | CLI supplies task resources and knowledge access; ordinary project lifecycle does not import Benchmark |
 | `harness/optimization.py`, `harness/candidates.py`, `harness/usage.py` | Shared project and packaged-task lifecycle | Injected execution/assessment; declared file/directory candidates, selection direction and exact/up-to rounds |
 | `harness/agent_sessions.py` | Native host handoff records | Freezes requests and retains native IDs and exported observations; the initiating Agent calls host tools |
+| `harness/skill_evaluation.py`, `harness/artifact_sandbox.py`, `harness/improvement.py`, `harness/atomic_json.py` | Skill-evaluation host adapter, trial execution and retention, sandbox replay, search progression | Verdict rules and task definitions arrive as injected values; no Model, Infra, Knowledge, Benchmark or Apps import |
+| `benchmark/skill_evaluation.py`, `benchmark/skill_eval_diagnostic.py`, `benchmark/skill_eval_engineering.py`, `benchmark/improvement.py` | Skill-evaluation criteria, task definitions and acceptance rules | Pure judgments over retained facts; no Harness import and no process start |
+| `apps/skill_evaluation.py`, `apps/skill_eval_engineering.py`, `apps/improvement.py` | Composed skill-evaluation entries | Join Knowledge reads, Harness execution and Benchmark rules behind the signatures that `harness/` held before the split |
 | `knowledge_operations.py`, `knowledge_store.py`, `catalog.py`, `research.py`, `skill_catalog.py`, `_skill_selection.py`, `_source_snapshot.py` | Static compatibility shells since K01; bodies in `knowledge/` | Interfaces unchanged |
 | `harness/` | Mixed legacy tree, not target isolation | Not redefined |
 | `evaluation.py`, `model/validators/` | Benchmark-leaning checks | Not moved |
@@ -143,8 +146,7 @@ A clean result means no new cross-core import of those names. It does not mean
 the modules are isolated. Isolation stays false while any one of these holds:
 `knowledge/`, `benchmark/`, or `apps/` is absent or has no scannable
 module; the compatibility allowlist
-is non-empty; the registered residual `harness.skill_evaluation` → root
-`knowledge_operations` exists; or `harness/**` still imports Model or Infra,
+is non-empty; or `harness/**` still imports Model or Infra,
 directly or through another module. The three packages may appear in stages.
 A clean graph for the new cores is reported separately as "new core business
 closure isolated" and never sets overall `isolation_complete` to true.
@@ -202,8 +204,8 @@ The leaf's own import rule and `REPO_TYPES` object identity govern it.
 - **Closures.** A Knowledge module reaches nothing outside Knowledge except
   the data leaf and `inferrsi._json_v1`, the canonical encoder in the P0a
   design. Benchmark modules and every `inferrsi.harness.*` module reach no
-  other core, no Apps module, and no old root leaf, except the registered
-  residual below. Apps reaches no old root leaf. `inferrsi.infra`
+  other core, no Apps module, and no old root leaf. Apps reaches no old root
+  leaf. `inferrsi.infra`
   reaches no Knowledge, Harness, Benchmark, or Apps module, so `infra` → root
   `catalog` → Knowledge fails while `infra` → the data leaf passes.
 - **New H entries.** The registered entry modules are
@@ -214,14 +216,15 @@ The leaf's own import rule and `REPO_TYPES` object identity govern it.
   paths from labels. Any `inferrsi.harness.*` module that exists is still
   checked against the closure rule above. The current mixed `harness` tree is
   not automatically an isolated core.
-- **Residual.** The registered `harness.skill_evaluation` → root
-  `knowledge_operations` edge stays listed and keeps overall isolation false.
-  A second direct harness importer of that target fails, and a new H entry
-  may not use the residual even through `skill_evaluation`. A mixed non-entry
-  harness module may still reach that target only through the residual
-  importer; that existing leak is not a new exception. The exemption is
-  reachability after removing only that exact residual edge: another path
-  to the same target is still a violation, regardless of traversal order.
+- **No residual.** The skill-evaluation split (#410) moved `export_bundle` to
+  Apps and removed the registered `harness.skill_evaluation` → root
+  `knowledge_operations` edge together with its exemption. Every harness
+  module is walked on the full graph. A harness module that reaches an old
+  root leaf fails, and so does each harness module that reaches the leaf
+  through it. The report lists every remaining `harness` → Model or Infra
+  path in `harness_model_infra`; the split modules `harness.skill_evaluation`,
+  `harness.improvement`, `harness.artifact_sandbox` and `harness.atomic_json`
+  have none.
 
 The manifest records the base commit, each old leaf's file hash at that
 commit, export names, audited definitions, consumer evidence, catalog's two

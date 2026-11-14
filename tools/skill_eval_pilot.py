@@ -7,13 +7,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from inferrsi.harness.skill_evaluation import (
-    CodexClient,
-    export_bundle,
-    normalize_usage,
-    run_trial,
-    summarize,
-)
+from inferrsi.apps.skill_evaluation import export_bundle, run_trial, summarize
+from inferrsi.harness.skill_evaluation import CodexClient
+from inferrsi.harness.usage import normalize_usage
 from inferrsi.infra.artifacts import sha256, write_json
 from inferrsi.knowledge_operations import KnowledgeReader
 
@@ -209,6 +205,8 @@ def prepare(
     bundles = {name: reader.read("checkout:" + name).view() for name in SKILLS}
     schedule = build_schedule(tasks, final_only)
     source_files = [
+        ROOT / "src/inferrsi/apps/skill_evaluation.py",
+        ROOT / "src/inferrsi/benchmark/skill_evaluation.py",
         ROOT / "src/inferrsi/harness/skill_evaluation.py",
         Path(__file__),
         ROOT / "tools/skill_eval_verifier.py",

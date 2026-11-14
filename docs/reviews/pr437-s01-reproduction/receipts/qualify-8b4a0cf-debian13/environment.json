@@ -1,0 +1,15 @@
+{
+  "captured_at_asia_shanghai": "2026-11-14 17:16:35 +0800",
+  "platform": "Linux-6.12.113+-x86_64-with-glibc2.41",
+  "system": "Linux",
+  "release": "6.12.113+",
+  "machine": "x86_64",
+  "python": "3.13.5 (main, Aug 10 2026, 12:06:59) [GCC 14.2.0]",
+  "python_executable": "/usr/bin/python3",
+  "revision": "8b4a0cfbde8a1f726c2ec1dcc4886cbb5f773db3",
+  "runner_image": "debian-13.7/local-box-bwrap-0.12.0",
+  "os_release": "PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\nVERSION=\"13 (trixie)\"\nVERSION_CODENAME=trixie\nDEBIAN_VERSION_FULL=13.7\nID=debian\nHOME_URL=\"https://www.debian.org/\"\nSUPPORT_URL=\"https://www.debian.org/support\"\nBUG_REPORT_URL=\"https://bugs.debian.org/\"\n",
+  "bwrap": "bubblewrap 0.12.0",
+  "qualify_exit": 0,
+  "host_note": "Grok Bot Linux box; not GitHub ubuntu-22.04. User namespaces already enabled; no sysctl/security-policy change."
+}

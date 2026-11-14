@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from inferrsi.harness import skill_eval_diagnostic as diagnostic
+from inferrsi.benchmark import skill_eval_diagnostic as diagnostic
 from inferrsi.infra.artifacts import write_json
 from tests.fixtures.skill_eval_compare_support import FixedOutputClient
 from tests.fixtures.skill_eval_pr_support import setup

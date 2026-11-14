@@ -1,5 +1,6 @@
 import copy
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -7,7 +8,9 @@ from unittest import mock
 
 import pytest
 
-from inferrsi.harness import skill_eval_engineering as engineering
+from inferrsi.apps import skill_eval_engineering as artifact_check
+from inferrsi.benchmark import skill_eval_engineering as engineering
+from inferrsi.harness import artifact_sandbox as sandbox
 
 TASK = {"id": "serving-parser", "split": "development", "request": engineering.REQUEST,
         "provenance": "Reconstructed public regression fixture"}
@@ -31,15 +34,15 @@ def test_strict_task_boundary(change):
                                     {"artifact_source": ""}, {"passed": True},
                                     {"artifact_source": "x" * 65537}])
 def test_missing_wrong_or_oversized_artifact_never_executes(change):
-    with mock.patch.object(engineering, "_invoke") as invoke:
-        assert not engineering.verify(TASK, {**ANSWER, **change})["passed"]
+    with mock.patch.object(sandbox, "_invoke") as invoke:
+        assert not artifact_check.verify(TASK, {**ANSWER, **change})["passed"]
         invoke.assert_not_called()
 
 
 def test_unavailable_sandbox_is_not_a_failing_skill_or_host_fallback():
-    with mock.patch.object(engineering, "_invoke", return_value=None) as invoke:
-        with pytest.raises(engineering.SandboxUnavailable):
-            engineering.verify(TASK, ANSWER)
+    with mock.patch.object(sandbox, "_invoke", return_value=None) as invoke:
+        with pytest.raises(sandbox.SandboxUnavailable):
+            artifact_check.verify(TASK, ANSWER)
         assert invoke.call_count == 1
         assert invoke.call_args.kwargs == {"probe": True}
 
@@ -47,15 +50,15 @@ def test_unavailable_sandbox_is_not_a_failing_skill_or_host_fallback():
 def test_trusted_parent_compares_each_behavior_not_agent_checks():
     expected = [{"success": success, "reason": reason}
                 for _, _, _, _, success, reason in engineering.VECTORS]
-    with mock.patch.object(engineering, "_invoke", side_effect=[{"ready": True}, *expected]):
-        result = engineering.verify(TASK, ANSWER)
+    with mock.patch.object(sandbox, "_invoke", side_effect=[{"ready": True}, *expected]):
+        result = artifact_check.verify(TASK, ANSWER)
     assert result["passed"]
     assert len(result["assertions"]) == len(engineering.VECTORS)
     # These are controller tests with mocked processes, not an artifact PASS.
     wrong = copy.deepcopy(expected)
     wrong[4] = {"success": True, "reason": "length"}
-    with mock.patch.object(engineering, "_invoke", side_effect=[{"ready": True}, *wrong]):
-        result = engineering.verify(TASK, ANSWER)
+    with mock.patch.object(sandbox, "_invoke", side_effect=[{"ready": True}, *wrong]):
+        result = artifact_check.verify(TASK, ANSWER)
     assert not result["passed"]
     assert result["assertions"]["stream_error"] is False
 
@@ -71,28 +74,28 @@ def test_child_receives_inputs_without_expected_results():
         calls.append(arguments)
         return {"success": False, "reason": "malformed_frame"}
 
-    with mock.patch.object(engineering, "_invoke", side_effect=invoke):
-        engineering.verify(TASK, ANSWER)
+    with mock.patch.object(sandbox, "_invoke", side_effect=invoke):
+        artifact_check.verify(TASK, ANSWER)
     assert calls == [[status, frames, count] for _, status, frames, count, _, _
                      in engineering.VECTORS]
-    assert "VECTORS" not in engineering.RUNNER
+    assert "VECTORS" not in sandbox.RUNNER
 
 
 def test_exact_boolean_and_reason_required():
     for wrong in ({"success": 1, "reason": "length"}, {"success": True, "reason": "anything"},
                   {"success": True, "reason": "length", "extra": True}, None):
-        with mock.patch.object(engineering, "_invoke",
+        with mock.patch.object(sandbox, "_invoke",
                                side_effect=[{"ready": True}] + [wrong] * len(engineering.VECTORS)):
-            assert not engineering.verify(TASK, ANSWER)["passed"]
+            assert not artifact_check.verify(TASK, ANSWER)["passed"]
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux sandbox command layout")
 def test_sandbox_command_has_no_host_home_repo_or_network_mount():
-    with mock.patch.object(engineering.shutil, "which", return_value="/usr/bin/bwrap"), \
+    with mock.patch.object(sandbox.shutil, "which", return_value="/usr/bin/bwrap"), \
          mock.patch.object(Path, "resolve", return_value=Path("/usr/bin/python3.13")), \
          mock.patch.object(Path, "is_file", return_value=True), \
          mock.patch.object(Path, "is_dir", return_value=True):
-        command = engineering.sandbox_command(Path("/temporary/test-artifact"))
+        command = sandbox.sandbox_command(Path("/temporary/test-artifact"))
     assert "--unshare-all" in command
     assert "--clearenv" in command
     assert command[command.index("--remount-ro") + 1] == "/"
@@ -104,9 +107,40 @@ def test_sandbox_command_has_no_host_home_repo_or_network_mount():
 
 
 def test_no_bwrap_is_fail_closed():
-    with mock.patch.object(engineering.shutil, "which", return_value=None):
-        with pytest.raises(engineering.SandboxUnavailable):
-            engineering.sandbox_command(Path("/unused"))
+    with mock.patch.object(sandbox.shutil, "which", return_value=None):
+        with pytest.raises(sandbox.SandboxUnavailable):
+            sandbox.sandbox_command(Path("/unused"))
+
+
+def test_pure_judgment_takes_retained_responses_and_starts_no_process():
+    expected = [{"success": success, "reason": reason}
+                for _, _, _, _, success, reason in engineering.VECTORS]
+    with mock.patch.object(sandbox, "_invoke") as invoke, \
+         mock.patch.object(sandbox.subprocess, "Popen") as start:
+        assert engineering.submission(TASK, ANSWER) == (ANSWER["artifact_source"].encode(), None)
+        assert engineering.vector_inputs() == [
+            [status, frames, count] for _, status, frames, count, _, _ in engineering.VECTORS]
+        assert engineering.judge(expected) == {
+            "passed": True, "assertions": {vector[0]: True for vector in engineering.VECTORS}}
+        # One response per vector is the contract; a short list is not a partial pass.
+        with pytest.raises(ValueError):
+            engineering.judge(expected[:-1])
+    invoke.assert_not_called()
+    start.assert_not_called()
+    assert not hasattr(engineering, "subprocess") and not hasattr(engineering, "verify")
+
+
+def test_sandbox_replay_holds_no_vectors_or_expected_results():
+    calls = []
+
+    def invoke(work, arguments=None, *, probe=False):
+        calls.append("probe" if probe else arguments)
+        return {"ready": True} if probe else {"echo": arguments}
+
+    with mock.patch.object(sandbox, "_invoke", side_effect=invoke):
+        assert sandbox.replay(b"source", [[1], [2]]) == [{"echo": [1]}, {"echo": [2]}]
+    assert calls == ["probe", [1], [2]]
+    assert not hasattr(sandbox, "VECTORS") and not hasattr(sandbox, "judge")
 
 
 def test_invoke_uses_clean_environment_and_bounded_output():
@@ -118,9 +152,9 @@ def test_invoke_uses_clean_environment_and_bounded_output():
         kwargs["stdout"].write(json.dumps({"ready": True}).encode())
         return process
 
-    with mock.patch.object(engineering, "sandbox_command", return_value=["sandbox"]), \
-         mock.patch.object(engineering.subprocess, "Popen", side_effect=start):
-        assert engineering._invoke(Path("/unused"), probe=True) == {"ready": True}
+    with mock.patch.object(sandbox, "sandbox_command", return_value=["sandbox"]), \
+         mock.patch.object(sandbox.subprocess, "Popen", side_effect=start):
+        assert sandbox._invoke(Path("/unused"), probe=True) == {"ready": True}
     assert process.communicate.call_args.kwargs["timeout"] == 5
 
 
@@ -133,18 +167,18 @@ def test_task_timeout_kills_process_group_and_is_failure():
         kwargs["stderr"].write(b"INFERRSI_ARTIFACT_READY\n")
         return process
 
-    with mock.patch.object(engineering, "sandbox_command", return_value=["sandbox"]), \
-         mock.patch.object(engineering.subprocess, "Popen", side_effect=start), \
-         mock.patch.object(engineering.os, "killpg") as kill:
-        assert engineering._invoke(Path("/unused"), []) is None
-    kill.assert_called_once_with(process.pid, engineering.signal.SIGKILL)
+    with mock.patch.object(sandbox, "sandbox_command", return_value=["sandbox"]), \
+         mock.patch.object(sandbox.subprocess, "Popen", side_effect=start), \
+         mock.patch.object(sandbox.os, "killpg") as kill:
+        assert sandbox._invoke(Path("/unused"), []) is None
+    kill.assert_called_once_with(process.pid, signal.SIGKILL)
 
 
 def test_real_sandbox_known_bad_starter_or_explicit_unavailable():
     # No model call. This fixture is our published starter, not downloaded code.
     try:
-        result = engineering.verify(TASK, ANSWER)
-    except engineering.SandboxUnavailable as error:
+        result = artifact_check.verify(TASK, ANSWER)
+    except sandbox.SandboxUnavailable as error:
         pytest.skip(str(error))
     assert not result["passed"]
     assert result["assertions"]["length"]
@@ -189,8 +223,8 @@ GOOD_ARTIFACT = '''def evaluate(status, frames, requested_tokens):
 
 def test_real_sandbox_known_correct_control_or_explicit_unavailable():
     try:
-        result = engineering.verify(TASK, {**ANSWER, "artifact_source": GOOD_ARTIFACT})
-    except engineering.SandboxUnavailable as error:
+        result = artifact_check.verify(TASK, {**ANSWER, "artifact_source": GOOD_ARTIFACT})
+    except sandbox.SandboxUnavailable as error:
         pytest.skip(str(error))
     assert result["passed"]
 
@@ -198,32 +232,32 @@ def test_real_sandbox_known_correct_control_or_explicit_unavailable():
 def test_regular_snapshot_rejects_symlink_oversize_and_fifo(tmp_path):
     source = tmp_path / "parser.py"
     source.write_bytes(b"code")
-    assert engineering.read_regular(source, 4) == b"code"
+    assert sandbox.read_regular(source, 4) == b"code"
     with pytest.raises(ValueError):
-        engineering.read_regular(source, 3)
+        sandbox.read_regular(source, 3)
     link = tmp_path / "linked.py"
     link.symlink_to(source)
     with pytest.raises(ValueError):
-        engineering.read_regular(link, 100)
-    if hasattr(engineering.os, "mkfifo"):
+        sandbox.read_regular(link, 100)
+    if hasattr(sandbox.os, "mkfifo"):
         fifo = tmp_path / "pipe"
-        engineering.os.mkfifo(fifo)
+        sandbox.os.mkfifo(fifo)
         with pytest.raises(ValueError):
-            engineering.read_regular(fifo, 100)
+            sandbox.read_regular(fifo, 100)
 
 
 def test_input_manifest_excludes_only_mutable_artifact_and_rejects_special_nodes(tmp_path):
     (tmp_path / "task.json").write_text("{}")
     (tmp_path / "parser.py").write_text(engineering.STARTER)
-    before = engineering.input_hashes(tmp_path)
+    before = sandbox.input_hashes(tmp_path)
     assert set(before) == {"task.json"}
     (tmp_path / "parser.py").write_text("changed")
-    assert engineering.input_hashes(tmp_path) == before
+    assert sandbox.input_hashes(tmp_path) == before
     (tmp_path / "extra.txt").write_text("not allowed")
-    assert engineering.input_hashes(tmp_path) != before
+    assert sandbox.input_hashes(tmp_path) != before
     (tmp_path / "link").symlink_to(tmp_path / "task.json")
     with pytest.raises(ValueError):
-        engineering.input_hashes(tmp_path)
+        sandbox.input_hashes(tmp_path)
 
 
 def test_negative_count_mutant_is_caught_by_public_oracle():
@@ -247,13 +281,13 @@ def test_worker_startup_failure_differs_from_artifact_crash(ready):
             kwargs["stderr"].write(b"INFERRSI_ARTIFACT_READY\n")
         return process
 
-    with mock.patch.object(engineering, "sandbox_command", return_value=["sandbox"]), \
-         mock.patch.object(engineering.subprocess, "Popen", side_effect=start):
+    with mock.patch.object(sandbox, "sandbox_command", return_value=["sandbox"]), \
+         mock.patch.object(sandbox.subprocess, "Popen", side_effect=start):
         if ready:
-            assert engineering._invoke(Path("/unused"), []) is None
+            assert sandbox._invoke(Path("/unused"), []) is None
         else:
-            with pytest.raises(engineering.SandboxUnavailable, match="trusted boundary"):
-                engineering._invoke(Path("/unused"), [])
+            with pytest.raises(sandbox.SandboxUnavailable, match="trusted boundary"):
+                sandbox._invoke(Path("/unused"), [])
 
 
 def test_deeply_nested_artifact_json_is_a_failed_response_not_controller_crash():
@@ -268,6 +302,6 @@ def test_deeply_nested_artifact_json_is_a_failed_response_not_controller_crash()
         kwargs["stdout"].write(raw)
         return process
 
-    with mock.patch.object(engineering, "sandbox_command", return_value=["sandbox"]), \
-         mock.patch.object(engineering.subprocess, "Popen", side_effect=start):
-        assert engineering._invoke(Path("/unused"), []) is None
+    with mock.patch.object(sandbox, "sandbox_command", return_value=["sandbox"]), \
+         mock.patch.object(sandbox.subprocess, "Popen", side_effect=start):
+        assert sandbox._invoke(Path("/unused"), []) is None
