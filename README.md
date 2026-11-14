@@ -8,11 +8,29 @@
 [![CLI](https://img.shields.io/badge/Interface-CLI-14B8A6?style=flat-square)](docs/quickstart.md)
 [![vLLM-Omni contributions](https://img.shields.io/badge/vLLM--Omni-Contributions-8B5CF6?style=flat-square)](#results)
 
-[Why InferRSI](#why-inferrsi) · [How It Works](#how-it-works) · [Results](#results) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Docs](#docs)
+[News](#news) · [Why InferRSI](#why-inferrsi) · [How It Works](#how-it-works) · [Results](#results) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Docs](#docs)
 
 </div>
 
 InferRSI is a **CLI workbench for inference optimization with coding agents**. Bring your benchmark and quality checks; compare implementations, trace every gain to its source, and carry useful tuning lessons into the next experiment.
+
+<a id="news"></a>
+
+## 📰 News
+
+Selected release milestones; see [all releases](https://github.com/InferMatrixLab/InferRSI/releases)
+for packages, checksums and the complete changelog.
+
+- **Upcoming — v0.2.0:** Formal release preparation is underway. Highlights since
+  v0.1.1 include three packaged optimization tasks (MoE forward, Qwen-Image
+  denoising and Qwen3-TTS), a unified optimization lifecycle, richer trajectory
+  and evidence dashboards, and expanded multimodal case studies.
+  [Reviewed highlights](docs/release-notes/v0.2.0.md) ·
+  [Release tracking](https://github.com/InferMatrixLab/InferRSI/issues/443).
+  Publication and release-package validation are still pending; case studies
+  retain their workload-specific validation limits.
+- **2026-11-01 — [v0.1.0 Developer Preview](https://github.com/InferMatrixLab/InferRSI/releases/tag/v0.1.0):**
+  First packaged preview release of the inference-optimization workbench.
 
 <a id="why-inferrsi"></a>
 
