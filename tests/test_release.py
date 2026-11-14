@@ -144,3 +144,48 @@ def test_sdist_boundary(tmp_path, name, allowed):
     else:
         with pytest.raises(ValueError):
             check_sdist(path)
+
+
+def test_one_off_v020_preserves_default_policy(release_repo):
+    release_repo("tag", "v0.1.1")
+    change_source(release_repo)
+    releases = [published("v0.1.1", prerelease=True)]
+    result = plan_release("main", releases, "0.1.0", release_v020=True)
+    assert result["tag"] == "v0.2.0"
+    assert result["prerelease"] == "false"
+    assert result["previous_tag"] == "v0.1.1"
+    assert plan_release("main", releases, "0.1.0")["tag"] == "v0.1.2"
+    release_repo("tag", "v0.2.0")
+    release_repo("commit", "--allow-empty", "-m", "later")
+    from pathlib import Path
+    Path("later.txt").write_text("later")
+    release_repo("add", "later.txt")
+    release_repo("commit", "-m", "changed")
+    release_repo("update-ref", "refs/remotes/origin/main", "HEAD")
+    following = plan_release("main", releases + [published("v0.2.0")], "0.1.0")
+    assert following["tag"] == "v0.2.1" and following["prerelease"] == "true"
+
+
+@pytest.mark.parametrize("tag", ["v0.2.0", "v0.2.1", "v1.0.0"])
+@pytest.mark.parametrize("reservation", ["tag", "draft", "published"])
+def test_one_off_rejects_reserved_or_obsolete_target(release_repo, tag, reservation):
+    release_repo("tag", "v0.1.1")
+    change_source(release_repo)
+    releases = [published("v0.1.1")]
+    if reservation == "tag":
+        release_repo("tag", tag)
+    else:
+        releases.append(published(tag, draft=reservation == "draft"))
+    with pytest.raises(ValueError, match="unused target"):
+        plan_release("main", releases, "0.1.0", release_v020=True)
+
+
+def test_one_off_can_promote_unchanged_preview_tree(release_repo):
+    release_repo("tag", "v0.1.1")
+    result = plan_release("main", [published("v0.1.1")], "0.1.0", release_v020=True)
+    assert result["tag"] == "v0.2.0" and result["prerelease"] == "false"
+
+
+def test_one_off_requires_notes_baseline(release_repo):
+    with pytest.raises(subprocess.CalledProcessError):
+        plan_release("main", [], "0.1.0", release_v020=True)

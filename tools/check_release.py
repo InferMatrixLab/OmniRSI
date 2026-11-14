@@ -32,7 +32,7 @@ def git(*args: str) -> str:
 
 
 def plan_release(default_branch: str, releases: list[dict], initial_version: str,
-                 prerelease: bool = True) -> dict:
+                 prerelease: bool = True, *, release_v020: bool = False) -> dict:
     if type(prerelease) is not bool:
         raise ValueError("Release prerelease setting must be a boolean")
     initial = version_tuple(f"v{initial_version}")
@@ -54,12 +54,21 @@ def plan_release(default_branch: str, releases: list[dict], initial_version: str
         reserved.append(value)
         if release["draft"] is False:
             published.append((value, tag))
+    if release_v020:
+        baseline = git("rev-parse", "--verify", "refs/tags/v0.1.1^{commit}")
+        subprocess.run(["git", "merge-base", "--is-ancestor", baseline, source],
+                       check=True, capture_output=True)
+        target = (0, 2, 0)
+        if any(value >= target for value in [*stable.values(), *reserved]):
+            raise ValueError("One-off v0.2.0 requires an unused target newer than "
+                             "every reserved version")
     previous_tag = max(published)[1] if published else ""
     if previous_tag:
         previous = git("rev-parse", "--verify", f"refs/tags/{previous_tag}^{{commit}}")
         subprocess.run(["git", "merge-base", "--is-ancestor", previous, source],
                        check=True, capture_output=True)
-        if git("rev-parse", f"{previous}^{{tree}}") == git("rev-parse", f"{source}^{{tree}}"):
+        if (not release_v020 and
+                git("rev-parse", f"{previous}^{{tree}}") == git("rev-parse", f"{source}^{{tree}}")):
             return {"release": "false"}
     used = [*stable.values(), *reserved]
     if used:
@@ -67,6 +76,9 @@ def plan_release(default_branch: str, releases: list[dict], initial_version: str
         version = max(initial, (major, minor, patch + 1))
     else:
         version = initial
+    if release_v020:
+        version = (0, 2, 0)
+        prerelease = False
     return {"release": "true", "tag": "v" + ".".join(map(str, version)),
             "version": ".".join(map(str, version)),
             "prerelease": str(prerelease).lower(),
@@ -238,6 +250,7 @@ def main() -> None:
     plan = commands.add_parser("plan")
     plan.add_argument("--default-branch", required=True)
     plan.add_argument("--releases", type=Path, required=True)
+    plan.add_argument("--release-v020", action="store_true")
     installed = commands.add_parser("installed")
     installed.add_argument("--tag", required=True)
     sdist = commands.add_parser("sdist")
@@ -257,7 +270,8 @@ def main() -> None:
             releases = [release for page in pages for release in page]
             settings = config["tool"]["inferrsi"]["release"]
             result = plan_release(args.default_branch, releases,
-                                  settings["initial_version"], settings["prerelease"])
+                                  settings["initial_version"], settings["prerelease"],
+                                  release_v020=args.release_v020)
             for key, value in result.items():
                 print(f"{key}={value}")
         elif args.command == "sdist":

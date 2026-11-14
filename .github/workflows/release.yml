@@ -6,6 +6,10 @@ on:
     - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
+      release_v020:
+        description: One-off formal v0.2.0 release (daily preview policy is unchanged)
+        default: false
+        type: boolean
       dry_run:
         description: Plan and validate only; create no remote tag or Release
         default: true
@@ -48,11 +52,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_V020: ${{ github.event_name == 'workflow_dispatch' && inputs.release_v020 }}
         shell: bash
         run: |
           gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          options=()
+          if [[ "$RELEASE_V020" == true ]]; then options+=(--release-v020); fi
           python tools/check_release.py plan --default-branch "$DEFAULT_BRANCH" \
-            --releases "$RUNNER_TEMP/releases.json" >> "$GITHUB_OUTPUT"
+            --releases "$RUNNER_TEMP/releases.json" "${options[@]}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
@@ -157,10 +164,15 @@ jobs:
           PREVIOUS_TAG: ${{ needs.plan.outputs.previous_tag }}
         shell: bash
         run: |
-          python tools/generate_release_notes.py --tag "$RELEASE_TAG" \
+          if [[ "$RELEASE_TAG" == v0.2.0 ]]; then
+            mkdir -p "$RUNNER_TEMP/release-notes"
+            cp docs/release-notes/v0.2.0.md "$RUNNER_TEMP/release-notes/ai-notes.md"
+          else
+            python tools/generate_release_notes.py --tag "$RELEASE_TAG" \
             --commit "$RELEASE_COMMIT" --previous-tag "$PREVIOUS_TAG" \
             --model "$OPENAI_MODEL" --base-url "$OPENAI_BASE_URL" \
             --output "$RUNNER_TEMP/release-notes/ai-notes.md"
+          fi
           if [[ -s "$RUNNER_TEMP/release-notes/ai-notes.md" ]]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
@@ -240,6 +252,10 @@ jobs:
         env:
           AI_NOTES_DOWNLOADED: ${{ steps.download_notes.outcome }}
         run: |
+          if [[ "$RELEASE_TAG" == v0.2.0 ]]; then
+            [[ "${AI_NOTES_DOWNLOADED:-}" == success && -f notes/ai-notes.md && ! -L notes/ai-notes.md ]]
+            [[ "$(wc -c < notes/ai-notes.md)" -gt 0 && "$(wc -c < notes/ai-notes.md)" -le 20000 ]]
+          fi
           gh api --method POST "repos/$GH_REPO/git/refs" \
             -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_COMMIT" > /dev/null
           notes_file="$RUNNER_TEMP/release-body.md"
@@ -248,12 +264,17 @@ jobs:
             printf '\nThese notes describe software changes. Release builds and scaffold checks do not establish campaign PASS, model quality or service performance. Any such claim requires its acceptance issue and complete frozen evidence.\n'
             if [[ "${AI_NOTES_DOWNLOADED:-}" == success && -f notes/ai-notes.md && ! -L notes/ai-notes.md ]] &&
               [[ "$(wc -c < notes/ai-notes.md)" -gt 0 && "$(wc -c < notes/ai-notes.md)" -le 20000 ]]; then
-              printf '\n## AI-generated summary\n\n'
+              if [[ "$RELEASE_TAG" == v0.2.0 ]]; then
+                printf '\n## Reviewed v0.2.0 highlights\n\n'
+              else
+                printf '\n## AI-generated summary\n\n'
+              fi
               cat notes/ai-notes.md
               printf '\n'
             fi
           } > "$notes_file"
           options=()
+          if [[ "$RELEASE_TAG" == v0.2.0 ]]; then PREVIOUS_TAG=v0.1.1; fi
           if [[ -n "$PREVIOUS_TAG" ]]; then options+=(--notes-start-tag "$PREVIOUS_TAG"); fi
           gh release create "$RELEASE_TAG" dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
             --verify-tag --draft --title "InferRSI $RELEASE_TAG" \

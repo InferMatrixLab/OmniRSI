@@ -125,7 +125,9 @@ def test_optional_notes_failure_cannot_skip_an_otherwise_valid_publication():
 
 
 @pytest.fixture
-def publisher(tmp_path):
+def publisher(tmp_path, request):
+    release_tag = getattr(request, "param", "v1.2.3")
+    previous_tag = "v0.1.10" if release_tag == "v0.2.0" else "v1.2.2"
     bash = shutil.which("bash")
     if os.name == "nt":
         candidate = Path(os.environ.get("ProgramFiles", "")) / "Git/bin/bash.exe"
@@ -135,15 +137,22 @@ def publisher(tmp_path):
     mock_bin = tmp_path / "bin"
     mock_bin.mkdir()
     gh = mock_bin / "gh"
-    gh.write_text(MOCK_GH, encoding="utf-8", newline="\n")
+    mock = MOCK_GH.replace("1.2.3", release_tag[1:]).replace("v1.2.2", previous_tag)
+    if release_tag == "v0.2.0":
+        mock = mock.replace("## AI-generated summary", "## Reviewed v0.2.0 highlights")
+        mock = mock.replace('record("create_release")',
+                            'assert args[args.index("--notes-start-tag") + 1] == "v0.1.1"\n'
+                            '    record("create_release")')
+    gh.write_text(mock, encoding="utf-8", newline="\n")
     gh.chmod(0o755)
     dist = tmp_path / "dist"
     dist.mkdir()
     checksums = []
     for name in ("inferrsi-1.2.3.whl", "inferrsi-1.2.3.tar.gz",
                  "inferrsi-codex-plugin-v1.2.3.zip", "inferrsi-workswarm-plugin-v1.2.3.zip"):
-        (dist / name).write_bytes(b"synthetic package")
-        checksums.append(hashlib.sha256(b"synthetic package").hexdigest() + "  " + name)
+        (dist / name.replace("1.2.3", release_tag[1:])).write_bytes(b"synthetic package")
+        checksums.append(hashlib.sha256(b"synthetic package").hexdigest() + "  " +
+                         name.replace("1.2.3", release_tag[1:]))
     (dist / "SHA256SUMS").write_text("\n".join(checksums) + "\n", encoding="utf-8", newline="\n")
     blocks = []
     for step in workflow()["jobs"]["publish"]["steps"]:
@@ -172,7 +181,7 @@ def publisher(tmp_path):
                    FAKE_GH_STATE=str(state_path), FAKE_GH_LOG=str(log_path),
                    RUNNER_TEMP=str(tmp_path),
                    GH_TOKEN="fake-no-access", GH_REPO="example/release", DEFAULT_BRANCH="main",
-                   RELEASE_TAG="v1.2.3", RELEASE_COMMIT=COMMIT, PREVIOUS_TAG="v1.2.2",
+                   RELEASE_TAG=release_tag, RELEASE_COMMIT=COMMIT, PREVIOUS_TAG=previous_tag,
                    PRERELEASE="true")
         env.update(inputs)
         env["AI_NOTES_DOWNLOADED"] = (
@@ -254,3 +263,34 @@ def test_incomplete_or_retargeted_release_cannot_be_published(publisher, state):
     assert [entry["operation"] for entry in mutations] == [
         "create_tag", "create_release", "upload_plugin", "upload_plugin",
     ]
+
+
+@pytest.mark.parametrize("publisher", ["v0.2.0"], indirect=True)
+def test_one_off_publishes_reviewed_notes_with_historical_baseline(publisher, tmp_path):
+    result, mutations = publisher({"ai_summary": "Reviewed highlights since v0.1.1"},
+                                  PRERELEASE="false")
+    assert result.returncode == 0, result.stderr
+    assert mutations[-1] == {"operation": "publish_release"}
+    calls = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    edits = [entry["args"] for entry in calls if entry.get("operation") == "call"
+             and entry["args"][:2] == ["release", "edit"]]
+    assert "--prerelease=false" in edits[-1] and "--latest" in edits[-1]
+
+
+@pytest.mark.parametrize("publisher", ["v0.2.0"], indirect=True)
+@pytest.mark.parametrize("state", [None, {"ai_summary": "x", "failed_notes_download": True},
+                                   {"ai_summary": "x" * 20001}])
+def test_one_off_missing_reviewed_notes_blocks_before_tag(publisher, state):
+    result, mutations = publisher(state, PRERELEASE="false")
+    assert result.returncode != 0
+    assert mutations == []
+
+
+def test_one_off_dispatch_is_opt_in_and_schedule_cannot_select_it():
+    config = workflow()
+    trigger = config.get("on", config.get(True))
+    assert trigger["workflow_dispatch"]["inputs"]["release_v020"]["default"] is False
+    step = next(step for step in config["jobs"]["plan"]["steps"] if step.get("id") == "plan")
+    assert "github.event_name == 'workflow_dispatch' && inputs.release_v020" in (
+        step["env"]["RELEASE_V020"])
+    assert '"${options[@]}"' in step["run"]

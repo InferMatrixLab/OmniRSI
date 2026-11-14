@@ -219,3 +219,25 @@ and [publication CLI](https://cli.github.com/manual/gh_release_edit), plus the
 [setuptools-scm build/archive contract](https://setuptools-scm.readthedocs.io/latest/usage/).
 Remote scheduled execution, repository policy and actual publication remain
 unverified until observed in an actual release run.
+
+## One-off formal v0.2.0
+
+The existing workflow accepts `release_v020=true` only through manual dispatch.
+It plans exactly v0.2.0 with `prerelease=false`, rejects any already reserved
+v0.2.0 or later numeric version, and retains the default-branch, ancestry,
+build, package, checksum and no-overwrite guards. Explicit promotion may reuse
+the latest preview tree; ordinary runs still skip unchanged trees. Start with
+`dry_run=true`; publication requires a separately authorized dispatch with
+`dry_run=false` after review and validation. Do not push the tag manually.
+
+The reviewed notes in [v0.2.0 highlights](release-notes/v0.2.0.md) and generated
+changelog use v0.1.1 as their comparison baseline. The live publication race
+check still uses the actual latest release, not that historical notes baseline.
+This one-off notes path does not call the model API. Wheel, sdist, Codex ZIP,
+WorkSwarm ZIP and SHA256SUMS remain bound to the planned source commit.
+
+Scheduled dispatch and ordinary manual runs keep the existing pyproject defaults.
+After v0.2.0 is published, the unchanged semantic patch planner naturally selects
+v0.2.1 as a preview when source changes; this does not retain the v0.1.x numbering
+line or turn future releases stable. A failed reserved v0.2.0 is not overwritten
+or silently replaced: investigate and obtain a new release decision.
