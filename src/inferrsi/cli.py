@@ -8,12 +8,13 @@ import sys
 from importlib.resources import files
 from pathlib import Path
 
+from .apps.knowledge import knowledge_reader
+from .apps.knowledge import read as read_knowledge
 from .arguments import device_ids, make_spec, parser
 from .catalog import get_knowledge, search_knowledge
 from .execution import run_experiment
 from .inspection import inspect_environment
 from .knowledge_operations import KnowledgeReader
-from .knowledge_store import KnowledgeStore
 from .observability.knowledge_capture import capture_context
 from .reporting import write_report
 from .research import research_knowledge
@@ -24,14 +25,7 @@ def _print(value: object) -> None:
 
 
 def _knowledge_reader(args) -> KnowledgeReader:
-    # Source selection stays explicit: installed package by default, with the
-    # checkout and store added only through --skill-root/--store.
-    store = (
-        KnowledgeStore(args.store, skill_root=args.skill_root, read_only=True)
-        if args.store is not None
-        else None
-    )
-    return KnowledgeReader(skill_root=args.skill_root, store=store)
+    return knowledge_reader(skill_root=args.skill_root, store_root=args.store)
 
 
 def _revisions(pairs: list[str]) -> dict[str, str]:
@@ -305,8 +299,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
         if args.command == "read":
-            bundle = _knowledge_reader(args).read(args.id, revision=args.revision)
-            _print(bundle.view(material=args.material))
+            _, _, view = read_knowledge(
+                _knowledge_reader(args), args.id, revision=args.revision, material=args.material,
+            )
+            _print(view)
             return 0
         if args.command == "resource":
             data = _knowledge_reader(args).resource(args.id, args.path, revision=args.revision)

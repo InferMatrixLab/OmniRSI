@@ -334,7 +334,13 @@ class KnowledgeReader:
         return result
 
     def read(self, reference: str, *, revision: str | None = None) -> Bundle:
-        return self._read(self.resolve(reference), revision)
+        _, bundle = self.read_resolved(reference, revision=revision)
+        return bundle
+
+    def read_resolved(self, reference: str, *, revision: str | None = None) -> tuple[str, Bundle]:
+        """Read a bundle and return the qualified reference used for that read."""
+        qualified = self.resolve(reference)
+        return qualified, self._read(qualified, revision)
 
     def _read(self, qualified: str, revision: str | None) -> Bundle:
         authority, _, identity = qualified.partition(":")
