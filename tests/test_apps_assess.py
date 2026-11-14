@@ -115,7 +115,8 @@ def test_unknown_primary_claim_does_not_invoke_assessor(tmp_path, offline, field
 
 
 @pytest.mark.parametrize("fault", [
-    "omitted_claim", "duplicate_claim", "reordered_claims", "identity", "foreign_error",
+    "omitted_claim", "omitted_non_primary_claim", "duplicate_claim", "reordered_claims",
+    "identity", "foreign_error",
     "invalid_verdict", "encoding",
 ])
 def test_invalid_assessor_response_does_not_create_archive(tmp_path, offline, fault):
@@ -123,6 +124,9 @@ def test_invalid_assessor_response_does_not_create_archive(tmp_path, offline, fa
     decision = _fixture("assessment")
     if fault == "omitted_claim":
         del decision["claims"][1]
+        _sign_assessment(decision)
+    elif fault == "omitted_non_primary_claim":
+        del decision["claims"][0]
         _sign_assessment(decision)
     elif fault == "duplicate_claim":
         decision["claims"].append(decision["claims"][0])

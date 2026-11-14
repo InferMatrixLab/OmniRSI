@@ -380,8 +380,7 @@ def _assess_fixed(
         returned_keys = [
             (claim["claim_id"], claim["validation_scope"]) for claim in assessment["claims"]
         ]
-        returned_set = set(returned_keys)
-        if returned_keys != [key for key in claim_keys if key in returned_set]:
+        if returned_keys != claim_keys:
             raise ValueError("assessor claim keys must follow the frozen protocol")
         validate_assessment(deepcopy(assessment))
         check_assessment_identity(assessment)
