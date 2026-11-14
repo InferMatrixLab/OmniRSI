@@ -318,6 +318,83 @@ def read_prepared(storage_config: dict, ref: dict) -> dict:
     return prepared
 
 
+def archive_assessment(identity: str, data: bytes, *, mount: tuple[str, Path]) -> dict:
+    """Commit canonical assessment bytes and return their fixed reference."""
+    prefix, root = mount
+    directory = uuid4().hex
+    ref = {
+        "assessment_id": identity,
+        "schema_version": 1,
+        "artifact": {
+            "location": f"{prefix}/{directory}/assessment.json",
+            "sha256": sha256(data).hexdigest(),
+            "size_bytes": len(data),
+            "media_type": "application/json",
+        },
+    }
+    published = False
+    try:
+        root = _directory(root)
+        with TemporaryDirectory(prefix=".pending-", dir=root) as temporary:
+            staging = Path(temporary)
+            _write_file(staging / "assessment.json", data)
+            _sync_directory(staging)
+            _publish_directory(staging, root / directory)
+            published = True
+            _sync_directory(root)
+    except (OSError, PublicError):
+        message = (
+            "Could not confirm the durability of the assessment archive."
+            if published else "Could not commit the assessment."
+        )
+        raise PublicError(
+            "ArchivePersistenceError", stage="assessment_archive", message=message
+        ) from None
+    return ref
+
+
+def read_assessment(storage_config: dict, ref: dict) -> dict:
+    """Read one archived assessment for reporting or independent replay."""
+    try:
+        if (
+            not isinstance(ref, dict)
+            or ref.keys() != {"assessment_id", "schema_version", "artifact"}
+        ):
+            raise ValueError("invalid AssessmentRef fields")
+        validate_artifact_ref(ref["artifact"])
+        if (
+            type(ref["schema_version"]) is not int or ref["schema_version"] != 1
+            or not isinstance(ref["assessment_id"], str)
+            or not _SEMANTIC_ID.fullmatch(ref["assessment_id"])
+            or ref["artifact"]["media_type"] != "application/json"
+        ):
+            raise ValueError("invalid AssessmentRef metadata")
+    except ValueError:
+        raise PublicError(
+            "InvalidRequest", stage="assessment_archive", message="Invalid AssessmentRef."
+        ) from None
+    prefix, root = archive_mount(storage_config)
+    data = _read_directory_artifact(prefix, root, ref["artifact"], stage="assessment_archive")
+    try:
+        assessment = decode(data)
+        if not isinstance(assessment, dict):
+            raise ValueError("expected an archived assessment object")
+    except ValueError:
+        raise PublicError(
+            "ArtifactIntegrityError", stage="assessment_archive",
+            message="Invalid archived assessment bytes.",
+        ) from None
+    if (
+        assessment.get("assessment_id") != ref["assessment_id"]
+        or type(assessment.get("schema_version")) is not int or assessment["schema_version"] != 1
+    ):
+        raise PublicError(
+            "IdentityMismatch", stage="assessment_archive",
+            message="AssessmentRef identifies a different assessment.",
+        )
+    return assessment
+
+
 def validate_output_id(output_id: str) -> None:
     if (
         not isinstance(output_id, str)
