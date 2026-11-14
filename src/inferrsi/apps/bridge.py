@@ -43,6 +43,14 @@ _PROTOCOL_FIELDS = {
 _PROTOCOL_COPIES = (
     "task", "grader", "operation", "validation_scope", "candidate_contract", "required_evidence",
 )
+_RECORD_FIELDS = {
+    "schema_version", "request_id", "run_id", "attempt_id", "request_digest", "owner",
+    "target_request", "target_binding", "retry_of", "retry_reason", "generation_record_ref",
+    "prepared_ref", "protocol_digest", "operation", "validation_scope", "candidate",
+    "record_version", "recorded_at", "bound_inputs", "phase", "started", "side_effect_unknown",
+    "process_outcome", "exit_code", "elapsed_seconds", "steps", "cancellation", "cleanup",
+    "artifacts", "checks", "budget_admission", "usage", "resource_leases", "errors",
+}
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _SEMANTIC_ID = re.compile(r"sha256:[0-9a-f]{64}")
@@ -286,9 +294,7 @@ def verify_protocol(prepared: dict, data: bytes) -> None:
         ) from None
 
 
-def _bind_spec(request: dict, prepared: dict) -> dict:
-    fields = execution_fields(request)
-    ref = fields["prepared_ref"]
+def _check_prepared_ref(prepared: dict, ref: dict, *, stage: str) -> None:
     if (
         not isinstance(ref, dict) or ref.keys() != {"prepared_id", "schema_version", "artifact"}
         or not isinstance(prepared, dict) or prepared.keys() != _PREPARED_FIELDS
@@ -296,7 +302,6 @@ def _bind_spec(request: dict, prepared: dict) -> dict:
         raise ValueError("invalid prepared object or reference fields")
     validate_artifact_ref(ref["artifact"])
     _logical_path(ref["artifact"]["location"])
-    _logical_path(fields["output_root"])
     data = encode(prepared)
     if (
         type(ref["schema_version"]) is not int or ref["schema_version"] != 1
@@ -308,7 +313,7 @@ def _bind_spec(request: dict, prepared: dict) -> dict:
         or ref["artifact"]["sha256"] != sha256(data).hexdigest()
     ):
         raise PublicError(
-            "IdentityMismatch", stage="binder_validation",
+            "IdentityMismatch", stage=stage,
             message="The preparation does not match its fixed reference.",
         )
     if (
@@ -317,6 +322,11 @@ def _bind_spec(request: dict, prepared: dict) -> dict:
     ):
         raise ValueError("invalid prepared operation, scope, or protocol digest")
 
+
+def _bind_spec(request: dict, prepared: dict) -> dict:
+    fields = execution_fields(request)
+    _check_prepared_ref(prepared, fields["prepared_ref"], stage="binder_validation")
+    _logical_path(fields["output_root"])
     inputs = _input_paths(request["proposal"]["inputs"])
     _candidate_input(fields["candidate"], prepared, inputs)
     _add_fixed_resources(inputs, prepared["resources"])
@@ -372,4 +382,65 @@ def bind_execution(request: dict, prepared: dict) -> dict:
         raise PublicError(
             "InvalidExecutionSpec", stage="binder_validation",
             message="The saved request and frozen worker recipe could not be bound.",
+        ) from None
+
+
+def to_evidence(
+    prepared: dict, prepared_ref: dict, record_ref: dict, committed_payload: dict,
+) -> dict:
+    """Project one committed record revision into the Benchmark evidence envelope."""
+    try:
+        _check_prepared_ref(prepared, prepared_ref, stage="assessment_binding")
+        if (
+            record_ref.keys() != {"attempt_id", "record_version", "artifact"}
+            or not _id(record_ref["attempt_id"])
+            or type(record_ref["record_version"]) is not int or record_ref["record_version"] < 1
+            or not isinstance(committed_payload, dict)
+            or committed_payload.keys() != _RECORD_FIELDS
+            or type(committed_payload["schema_version"]) is not int
+            or committed_payload["schema_version"] != 1
+            or type(committed_payload["record_version"]) is not int
+        ):
+            raise ValueError("invalid fixed record shape")
+        artifact = record_ref["artifact"]
+        validate_artifact_ref(artifact)
+        _logical_path(artifact["location"])
+        if artifact["media_type"] != "application/json":
+            raise ValueError("expected a JSON record")
+        data = encode(committed_payload)
+        if artifact["sha256"] != sha256(data).hexdigest() or artifact["size_bytes"] != len(data):
+            raise PublicError(
+                "ArtifactIntegrityError", stage="assessment_binding",
+                message="The record bytes do not match the fixed reference.",
+            )
+        if committed_payload["candidate"] is None:
+            raise PublicError(
+                "IdentityMismatch", stage="assessment_binding",
+                message="The fixed evaluation record has no candidate declaration.",
+            )
+        if (
+            committed_payload["attempt_id"] != record_ref["attempt_id"]
+            or committed_payload["request_id"] != record_ref["attempt_id"]
+            or committed_payload["record_version"] != record_ref["record_version"]
+            or committed_payload["prepared_ref"] != prepared_ref
+            or any(committed_payload[key] != prepared[key]
+                   for key in ("protocol_digest", "operation", "validation_scope"))
+        ):
+            raise PublicError(
+                "IdentityMismatch", stage="assessment_binding",
+                message="The record does not belong to this attempt and preparation.",
+            )
+        return deepcopy({
+            "schema_version": 1,
+            "record_ref": record_ref,
+            "record_digest": artifact["sha256"],
+            "task": prepared["task"],
+            "task_source": "prepared_ref",
+            "record": committed_payload,
+            "artifact_checks": [],
+        })
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise PublicError(
+            "InvalidRequest", stage="assessment_binding",
+            message="Expected a fixed v1 evaluation record and preparation.",
         ) from None
