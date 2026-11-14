@@ -49,8 +49,7 @@ def _logical_path(value: object) -> tuple[str, ...]:
     return parts
 
 
-def archive_mount(config: dict, *, for_write: bool = False) -> tuple[str, Path]:
-    """Select the trusted local archive mount and check write configuration."""
+def _storage_mounts(config: dict) -> dict[str, tuple[str, str, Path]]:
     try:
         if (
             not isinstance(config, dict)
@@ -85,13 +84,23 @@ def archive_mount(config: dict, *, for_write: bool = False) -> tuple[str, Path]:
                 raise ValueError
             prefixes.append(prefix)
             mounts[namespace] = (mount["kind"], mount["prefix"], root)
-        kind, prefix, root = mounts[config["archive_namespace"]]
-        if kind != "directory" or config["harness_namespace"] not in mounts:
+        if config["archive_namespace"] not in mounts or config["harness_namespace"] not in mounts:
             raise ValueError
     except (KeyError, TypeError, ValueError):
         raise PublicError(
             "InvalidRequest", stage="storage_config", message="Invalid Apps storage configuration."
         ) from None
+    return mounts
+
+
+def archive_mount(config: dict, *, for_write: bool = False) -> tuple[str, Path]:
+    """Select the trusted local archive mount and check write configuration."""
+    mounts = _storage_mounts(config)
+    kind, prefix, root = mounts[config["archive_namespace"]]
+    if kind != "directory":
+        raise PublicError(
+            "InvalidRequest", stage="storage_config", message="The Apps archive needs a directory."
+        )
     if for_write:
         try:
             root = _directory(root)
@@ -119,9 +128,11 @@ def _prepared_error(code: str, message: str) -> PublicError:
     return PublicError(code, stage="prepared_archive", message=message)
 
 
-def _check_bytes(ref: dict, size: int, digest: str) -> None:
+def _check_bytes(ref: dict, size: int, digest: str, *, stage: str = "prepared_archive") -> None:
     if ref["size_bytes"] != size or ref["sha256"] != digest:
-        raise _prepared_error("ArtifactIntegrityError", "Prepared artifact bytes do not match.")
+        raise PublicError(
+            "ArtifactIntegrityError", stage=stage, message="Artifact bytes do not match."
+        )
 
 
 def _write_verified(path: Path, ref: dict, source: bytes | BinaryIO) -> None:
@@ -248,6 +259,12 @@ def archive_prepared(
 def read_archive_artifact(storage_config: dict, ref: dict) -> bytes:
     """Read and verify an artifact under the selected Apps archive mount."""
     prefix, root = archive_mount(storage_config)
+    return _read_directory_artifact(prefix, root, ref)
+
+
+def _read_directory_artifact(
+    prefix: str, root: Path, ref: dict, *, stage: str = "prepared_archive",
+) -> bytes:
     try:
         validate_artifact_ref(ref)
         parts = _logical_path(ref["location"])
@@ -265,15 +282,15 @@ def read_archive_artifact(storage_config: dict, ref: dict) -> bytes:
         ):
             raise ValueError
         data = _read_file(_directory(root).joinpath(*suffix))
-    except (ValueError, RuntimeError):
-        raise _prepared_error(
-            "UnsafeArtifactPath", "Invalid Apps archive artifact location."
+    except (ValueError, RuntimeError, PublicError):
+        raise PublicError(
+            "UnsafeArtifactPath", stage=stage, message="Invalid directory artifact location."
         ) from None
     except OSError:
-        raise _prepared_error(
-            "ArtifactUnavailable", "Could not read the Apps archive artifact."
+        raise PublicError(
+            "ArtifactUnavailable", stage=stage, message="Could not read the directory artifact."
         ) from None
-    _check_bytes(ref, len(data), sha256(data).hexdigest())
+    _check_bytes(ref, len(data), sha256(data).hexdigest(), stage=stage)
     return data
 
 

@@ -125,3 +125,13 @@ uses the attempt root as its working directory and the original attempt
 deadline. OperationRecipe v1 has no per-step timeout, so the step timeout
 is null. The expected worker code digest comes from the fixed recipe.
 The bound spec is handed to the host-supplied Harness execution port.
+
+## Fixed artifact reader
+
+`inferrsi.apps.artifact_reader.ArtifactReader(storage_config)` implements
+`open(ArtifactRef)` for hosts composing execution or offline assessment.
+Locations select one configured mount by its full prefix and slash boundary.
+Directory mounts verify the declared bytes and reject links or traversal.
+Harness SQLite mounts use the public read-only RunStore reader for fixed
+record versions and retained objects. A directory export can replace a
+Harness mount at the same prefix for offline reads.
